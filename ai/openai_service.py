@@ -523,7 +523,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                     for alias in SEMANTIC_MAPPINGS[target_field]:
                         for src_col, src_lower in headers_lower_temp.items():
                             if src_col in col_mapping_temp: continue
-                            if alias in src_lower or src_lower in alias:
+                            if alias in src_lower:
                                 col_mapping_temp[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping_temp.values()):
@@ -531,7 +531,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                             
                 if not any(v == target_field for v in col_mapping_temp.values()):
                     broad_keywords = {
-                        'departments': ['department', 'dept', 'location', 'branch', 'facility', 'site'],
+                        'departments': ['department', 'dept', 'branch', 'facility', 'site'],
                         'units': ['unit', 'ward', 'section', 'division'],
                         'designation': ['designation', 'position', 'title', 'rank', 'category'],
                         'userName': ['user name', 'username', 'login', 'user id', 'userid'],
@@ -572,8 +572,18 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
 
         if is_sub_header:
             headers = []
+            parent_headers = raw_df.iloc[header_row_idx].tolist()
+            # Forward-fill parent headers to handle merged cells!
+            filled_parents = []
+            last_parent = ""
+            for p in parent_headers:
+                p_str = str(p).strip()
+                if p_str and p_str.lower() not in ('nan', 'none', '-'):
+                    last_parent = p_str
+                filled_parents.append(last_parent)
+
             for c_idx in range(len(raw_df.columns)):
-                parent_h = str(raw_df.iloc[header_row_idx].iloc[c_idx]).strip()
+                parent_h = filled_parents[c_idx]
                 child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
                 
                 parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
@@ -595,6 +605,17 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
             headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
             data_df = raw_df.iloc[header_row_idx + 1:].copy().reset_index(drop=True)
 
+        # Ensure unique headers by adding suffixes to duplicates to prevent pandas Series mapping issues
+        unique_headers = []
+        header_counts = {}
+        for h in headers:
+            if h in header_counts:
+                header_counts[h] += 1
+                unique_headers.append(f"{h}_{header_counts[h]}")
+            else:
+                header_counts[h] = 0
+                unique_headers.append(h)
+        headers = unique_headers
         data_df.columns = headers
         
         # Remove rows that are all empty/nan
@@ -631,7 +652,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                         for src_col, src_lower in headers_lower.items():
                             if src_col in col_mapping:
                                 continue
-                            if alias in src_lower or src_lower in alias:
+                            if alias in src_lower:
                                 col_mapping[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping.values()):
