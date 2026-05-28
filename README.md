@@ -1,7 +1,5 @@
 # User Master Intelligence
 
-Automated HR & Access Control Data Mapping — powered by AI + Local extraction.
-
 ## Features
 - **AI Extraction**: Uses OpenAI GPT / Google Gemini to extract user data from Excel, PDF, Word files
 - **Local Fallback**: Pure pandas extraction when API keys are exhausted — zero API calls needed
