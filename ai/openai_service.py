@@ -503,9 +503,98 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
             if matches >= 5:
                 break
         
-        # Set headers and data
-        headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
-        data_df = raw_df.iloc[header_row_idx + 1:].copy().reset_index(drop=True)
+        # --- Check if the row immediately following the header row is a sub-header row ---
+        is_sub_header = False
+        headers_temp = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
+        
+        # Build temp col_mapping to check if next row has actual data in name/email columns
+        col_mapping_temp = {}
+        for target_field in USER_MASTER_COLS:
+            if target_field == 'roles': continue
+            tf_lower = target_field.lower()
+            for src_col, src_lower in headers_lower_temp.items():
+                if src_col in col_mapping_temp: continue
+                if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                    col_mapping_temp[src_col] = target_field
+                    break
+            else:
+                if target_field in SEMANTIC_MAPPINGS:
+                    for alias in SEMANTIC_MAPPINGS[target_field]:
+                        for src_col, src_lower in headers_lower_temp.items():
+                            if src_col in col_mapping_temp: continue
+                            if alias in src_lower or src_lower in alias:
+                                col_mapping_temp[src_col] = target_field
+                                break
+                        if any(v == target_field for v in col_mapping_temp.values()):
+                            break
+                            
+                if not any(v == target_field for v in col_mapping_temp.values()):
+                    broad_keywords = {
+                        'departments': ['department', 'dept', 'location', 'branch', 'facility', 'site'],
+                        'units': ['unit', 'ward', 'section', 'division'],
+                        'designation': ['designation', 'position', 'title', 'rank', 'category'],
+                        'userName': ['user name', 'username', 'login', 'user id', 'userid'],
+                        'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
+                        'email': ['email', 'e-mail', 'mail'],
+                        'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                    }
+                    if target_field in broad_keywords:
+                        for kw in broad_keywords[target_field]:
+                            for src_col, src_lower in headers_lower_temp.items():
+                                if src_col in col_mapping_temp: continue
+                                if kw in src_lower:
+                                    col_mapping_temp[src_col] = target_field
+                                    break
+                            if any(v == target_field for v in col_mapping_temp.values()):
+                                break
+                                
+                if target_field == 'firstName' and 'firstName' not in col_mapping_temp.values():
+                    for src_col, src_lower in headers_lower_temp.items():
+                        if src_col in col_mapping_temp: continue
+                        if src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
+                            col_mapping_temp[src_col] = '_fullName'
+                            break
+
+        if header_row_idx + 1 < len(raw_df):
+            next_row = raw_df.iloc[header_row_idx + 1]
+            name_email_empty = True
+            for src_col, target_field in col_mapping_temp.items():
+                if target_field in ['firstName', 'lastName', '_fullName', 'employeeId', 'email']:
+                    col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
+                    val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
+                    if val and val not in ('nan', 'none', '-'):
+                        name_email_empty = False
+                        break
+            text_cells = sum(1 for v in next_row.values if str(v).strip() and str(v).strip().lower() not in ('nan', 'none', '-'))
+            if name_email_empty and text_cells >= 2:
+                is_sub_header = True
+
+        if is_sub_header:
+            headers = []
+            for c_idx in range(len(raw_df.columns)):
+                parent_h = str(raw_df.iloc[header_row_idx].iloc[c_idx]).strip()
+                child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
+                
+                parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
+                child_clean = "" if child_h.lower() in ('nan', 'none', '-') else child_h
+                
+                if parent_clean and child_clean:
+                    if parent_clean.lower() == child_clean.lower():
+                        headers.append(child_clean)
+                    else:
+                        headers.append(f"{parent_clean}|{child_clean}")
+                elif child_clean:
+                    headers.append(child_clean)
+                elif parent_clean:
+                    headers.append(parent_clean)
+                else:
+                    headers.append(f"col_{c_idx}")
+            data_df = raw_df.iloc[header_row_idx + 2:].copy().reset_index(drop=True)
+        else:
+            headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+            data_df = raw_df.iloc[header_row_idx + 1:].copy().reset_index(drop=True)
+
         data_df.columns = headers
         
         # Remove rows that are all empty/nan
@@ -579,18 +668,21 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                             col_mapping[src_col] = '_fullName'
                             break
         
-        # Check for running/floating roles column in headers
+        # Check for running/floating roles column in headers (must not be a tick-marked column)
+        TICK_VALUES = {'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}  # includes √ ✓ ✔ ☑
         roles_col_name = None
         for h in headers:
             if any(kw in h.lower() for kw in ['role', 'audit user', 'assigned role', 'user role', 'incharge', 'admin', 'validation']):
-                roles_col_name = h
-                break
+                col_vals = data_df[h].dropna().astype(str).str.strip()
+                has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
+                if not has_ticks:
+                    roles_col_name = h
+                    break
 
         # --- Detect tick-marked role columns ---
-        TICK_VALUES = {'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}  # includes √ ✓ ✔ ☑
         role_cols = {}
         role_keywords = ['role', 'audit', 'incharge', 'admin', 'user', 'manager', 
-                        'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff']
+                        'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff', 'analyst', 'advisor', 'preventionist']
         for src_col in headers:
             src_lower = str(src_col).lower()
             is_role_header = any(kw in src_lower for kw in role_keywords)
@@ -640,7 +732,12 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                 for rc_col, rc_name in role_cols.items():
                     rv = str(row.get(rc_col, '')).strip()
                     if rv.lower() in TICK_VALUES or rv in TICK_VALUES:
-                        assigned_roles.append(rc_name)
+                        clean_rc_name = rc_name.split('|')[-1] if '|' in rc_name else rc_name
+                        parent_pre = rc_name.split('|')[0] if '|' in rc_name else ""
+                        if parent_pre and parent_pre.lower() not in clean_rc_name.lower():
+                            assigned_roles.append(f"{parent_pre}|{clean_rc_name}")
+                        else:
+                            assigned_roles.append(clean_rc_name)
                 if assigned_roles:
                     if user['roles']:
                         existing = user['roles'].split('|')
