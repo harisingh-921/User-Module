@@ -472,10 +472,24 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
         raw_df = raw_df[mask].reset_index(drop=True)
         if raw_df.empty:
             continue
+            
+        # Try to find a global unit name in the sheet
+        global_unit = ""
+        for r_idx, row in raw_df.iterrows():
+            row_vals = [str(x).strip() for x in row.values]
+            for c_idx, val in enumerate(row_vals):
+                if val.lower() == 'unit name' and c_idx + 1 < len(row_vals):
+                    candidate = row_vals[c_idx + 1]
+                    if candidate and candidate.lower() not in ('nan', 'none', '-'):
+                        global_unit = candidate
+                        break
+            if global_unit:
+                break
         
-        # --- Auto-detect header row ---
+        # --- Improved Auto-detect header row ---
         str_df = raw_df.astype(str).map(lambda x: str(x).strip())
         header_row_idx = 0
+        max_matches = 0
         for idx, row in str_df.iterrows():
             vals = row.str.lower().tolist()
             # If row contains common header keywords, it's likely the header
@@ -483,8 +497,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                              'department', 'unit', 'role', 'designation', 'staff',
                              'first', 'last', 'username', 'password']
             matches = sum(1 for v in vals if any(kw in str(v).lower() for kw in header_keywords))
-            if matches >= 2:
+            if matches > max_matches:
+                max_matches = matches
                 header_row_idx = idx
+            if matches >= 5:
                 break
         
         # Set headers and data
@@ -506,6 +522,9 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
         headers_lower = {h: h.lower().strip() for h in headers}
         
         for target_field in USER_MASTER_COLS:
+            # Roles is handled specially if it's a running role column or tick-marked columns
+            if target_field == 'roles':
+                continue
             if any(v == target_field for v in col_mapping.values()):
                 continue  # Already mapped
             tf_lower = target_field.lower()
@@ -560,6 +579,13 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                             col_mapping[src_col] = '_fullName'
                             break
         
+        # Check for running/floating roles column in headers
+        roles_col_name = None
+        for h in headers:
+            if any(kw in h.lower() for kw in ['role', 'audit user', 'assigned role', 'user role', 'incharge', 'admin', 'validation']):
+                roles_col_name = h
+                break
+
         # --- Detect tick-marked role columns ---
         TICK_VALUES = {'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}  # includes √ ✓ ✔ ☑
         role_cols = {}
@@ -568,15 +594,29 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
         for src_col in headers:
             src_lower = str(src_col).lower()
             is_role_header = any(kw in src_lower for kw in role_keywords)
-            if is_role_header and src_col not in col_mapping:
+            if is_role_header and src_col not in col_mapping and src_col != roles_col_name:
                 col_vals = data_df[src_col].dropna().astype(str).str.strip()
                 has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
                 if has_ticks:
                     role_cols[src_col] = src_col
         
         # --- Build user records ---
+        last_role_val = ""
         for _, row in data_df.iterrows():
             user = {col: '' for col in USER_MASTER_COLS}
+            
+            # Global Unit Name fallback
+            if global_unit:
+                user['units'] = global_unit
+                
+            # Running role mapping
+            if roles_col_name:
+                rv = str(row.get(roles_col_name, '')).strip()
+                if rv and rv.lower() not in ('nan', 'none', '-'):
+                    last_role_val = rv
+            
+            if last_role_val:
+                user['roles'] = last_role_val
             
             for src_col, target_field in col_mapping.items():
                 val = str(row.get(src_col, '')).strip()
@@ -602,15 +642,49 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                     if rv.lower() in TICK_VALUES or rv in TICK_VALUES:
                         assigned_roles.append(rc_name)
                 if assigned_roles:
-                    user['roles'] = '|'.join(assigned_roles)
+                    if user['roles']:
+                        existing = user['roles'].split('|')
+                        for r in assigned_roles:
+                            if r not in existing:
+                                existing.append(r)
+                        user['roles'] = '|'.join(existing)
+                    else:
+                        user['roles'] = '|'.join(assigned_roles)
             
-            # Skip rows with no identity at all
-            has_name = (user.get('firstName', '').strip() or 
-                       user.get('lastName', '').strip() or 
-                       user.get('employeeId', '').strip() or
-                       user.get('userName', '').strip())
-            if has_name:
-                all_users.append(user)
+            # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
+            identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'mobile']
+            max_parts = 1
+            for f in identity_fields:
+                val = user.get(f, '')
+                if '|' in val:
+                    parts = [p.strip() for p in val.split('|')]
+                    max_parts = max(max_parts, len(parts))
+            
+            if max_parts > 1:
+                for i in range(max_parts):
+                    sub_user = user.copy()
+                    for f in USER_MASTER_COLS:
+                        if f in identity_fields:
+                            val = user.get(f, '')
+                            parts = [p.strip() for p in val.split('|')] if '|' in val else [val]
+                            if i < len(parts):
+                                sub_user[f] = parts[i]
+                            else:
+                                sub_user[f] = ''
+                    
+                    has_name = (sub_user.get('firstName', '').strip() or 
+                               sub_user.get('lastName', '').strip() or 
+                               sub_user.get('employeeId', '').strip() or
+                               sub_user.get('userName', '').strip())
+                    if has_name:
+                        all_users.append(sub_user)
+            else:
+                has_name = (user.get('firstName', '').strip() or 
+                           user.get('lastName', '').strip() or 
+                           user.get('employeeId', '').strip() or
+                           user.get('userName', '').strip())
+                if has_name:
+                    all_users.append(user)
     
     if not all_users:
         return pd.DataFrame()
