@@ -531,10 +531,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                             
                 if not any(v == target_field for v in col_mapping_temp.values()):
                     broad_keywords = {
-                        'departments': ['department', 'dept', 'branch', 'facility', 'site'],
+                        'departments': ['department', 'dept'],
                         'units': ['unit', 'ward', 'section', 'division'],
                         'designation': ['designation', 'position', 'title', 'rank', 'category'],
-                        'userName': ['user name', 'username', 'login', 'user id', 'userid'],
+                        'userName': ['user name', 'username'],
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
                         'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
@@ -661,10 +661,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                 # Broad keyword match for common fields
                 if not any(v == target_field for v in col_mapping.values()):
                     broad_keywords = {
-                        'departments': ['department', 'dept', 'location', 'branch', 'facility', 'site'],
+                        'departments': ['department', 'dept'],
                         'units': ['unit', 'ward', 'section', 'division'],
                         'designation': ['designation', 'position', 'title', 'rank', 'category'],
-                        'userName': ['user name', 'username', 'login', 'user id', 'userid'],
+                        'userName': ['user name', 'username'],
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
                         'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
