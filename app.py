@@ -4,6 +4,13 @@ import pandas as pd
 import io
 import os
 import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 from ai.openai_service import openai_extract_users, local_extract_users, _merge_duplicate_users
 from config.constants import USER_MASTER_COLS

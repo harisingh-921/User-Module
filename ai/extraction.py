@@ -139,12 +139,64 @@ def get_openai_client(api_key):
         )
     return OpenAI(api_key=api_key_str)
 
+def probe_api_key(key):
+    """Probes an API key with a fast 3-second timeout request to verify it's working."""
+    if not key:
+        return False
+    key_str = str(key).strip()
+    client = get_openai_client(key_str)
+    if not client:
+        return False
+    
+    if key_str.startswith("AIzaSy"):
+        model = "gemini-2.5-flash"
+    else:
+        model = "gpt-4o-mini"
+        
+    try:
+        # A simple lightweight chat completion to test connectivity and quota
+        client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+            timeout=3.0
+        )
+        return True
+    except Exception as e:
+        log.warning("Pre-flight check failed for key prefix %s...: %s: %s", key_str[:12], type(e).__name__, e)
+        return False
+
+def get_healthy_api_keys(api_key):
+    """
+    Returns only verified, active API keys.
+    Results are cached in Streamlit session state to avoid running probes on every rerun.
+    """
+    all_keys = get_all_api_keys(api_key)
+    if not all_keys:
+        return []
+        
+    if "healthy_api_keys" in st.session_state:
+        cached_keys = [k for k in st.session_state.healthy_api_keys if k in all_keys]
+        if cached_keys:
+            return cached_keys
+            
+    healthy_keys = []
+    with ThreadPoolExecutor(max_workers=len(all_keys)) as executor:
+        future_to_key = {executor.submit(probe_api_key, key): key for key in all_keys}
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                if future.result():
+                    healthy_keys.append(key)
+            except Exception:
+                pass
+                
+    ordered_healthy = [k for k in all_keys if k in healthy_keys]
+    st.session_state.healthy_api_keys = ordered_healthy
+    return ordered_healthy
+
 def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Med"):
     """Universal AI User Extraction Engine with Chunking & Failover."""
-    api_key_str = str(api_key).strip()
-    client = get_openai_client(api_key_str)
-    if not client: return None
-
     # ── File-size guard ───────────────────────────────────────────────────────
     size_mb = len(file_bytes) / 1_048_576
     if size_mb > _MAX_FILE_SIZE_MB:
@@ -154,6 +206,15 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
     # ─────────────────────────────────────────────────────────────────────────
 
     try:
+        healthy_keys = get_healthy_api_keys(api_key)
+        if not healthy_keys:
+            log.warning("No healthy API keys available. Skipping AI extraction.")
+            return None
+            
+        any_openai_healthy = any(not k.startswith("AIzaSy") for k in healthy_keys)
+        max_workers = 5 if any_openai_healthy else 1
+        log.info("Starting AI extraction. Healthy keys count: %d, OpenAI healthy: %s. Concurrency: %d workers.", len(healthy_keys), any_openai_healthy, max_workers)
+
         dynamic_prompt = USER_EXTRACTION_PROMPT.format(pass_prefix=pass_prefix)
         ext = filename.lower()
         
@@ -376,15 +437,17 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             
             def process_chunk(chunk_data, batch_idx):
                 chunk_text = chunk_data['text']
-                all_keys = get_all_api_keys(api_key)
                 
-                for k_idx, current_key in enumerate(all_keys):
+                for k_idx, current_key in enumerate(healthy_keys):
                     current_client = get_openai_client(current_key)
                     if not current_client:
                         continue
                     
                     if current_key.startswith("AIzaSy"):
                         models_to_try = ["gemini-2.5-flash"]
+                        # For Gemini Free Tier, sequential requests can still trigger 15 RPM rate limits.
+                        # Adding a 1-second delay ensures we stay perfectly within boundaries.
+                        time.sleep(1.0)
                     else:
                         models_to_try = ["gpt-4o-mini", "gpt-4o"]
                         
@@ -397,7 +460,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                     {"role": "user", "content": f"USER INTENT: {intent}\n\nINPUT DATA TABLE:\n{chunk_text}"}
                                 ],
                                 response_format=UserMasterResult,
-                                timeout=120,
+                                timeout=60,
                                 temperature=0.0
                             )
                             result = [u.__dict__ for u in completion.choices[0].message.parsed.users]
@@ -410,7 +473,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                         {"role": "user", "content": f"USER INTENT: {intent}\n\nINPUT DATA TABLE:\n{chunk_text}"}
                                     ],
                                     response_format=UserMasterResult,
-                                    timeout=120,
+                                    timeout=60,
                                     temperature=0.0
                                 )
                                 result = [u.__dict__ for u in completion2.choices[0].message.parsed.users]
@@ -422,14 +485,11 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 log.info("Batch %d API Key #%d hit rate limit/quota. Trying next key...", batch_idx, k_idx + 1)
                                 break # break the model loop to try the next key
                             else:
-                                if model == models_to_try[0]:
+                                if model == models_to_try[0] and len(models_to_try) > 1:
                                     time.sleep(1)
                                     continue # try next model
                 return []
 
-            # Gemini Free Tier has a strict 15 RPM / concurrency limit.
-            # Running sequentially (max_workers=1) ensures we never hit the rate limit!
-            max_workers = 1 if api_key_str.startswith("AIzaSy") else 5
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_idx = {executor.submit(process_chunk, chunk, i): i for i, chunk in enumerate(all_chunks_to_process)}
                 completed = 0
@@ -495,7 +555,6 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
 
         # Fallback for PDF/Word
         chunk_size = 30
-        all_users = []
         chunks = []
         for i in range(0, len(all_lines), chunk_size):
             chunk = all_lines[i:i + chunk_size]
@@ -507,35 +566,57 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         status_text = st.empty()
         
         def process_simple_chunk(chunk_text, batch_idx):
-            for model in ["gpt-4o", "gpt-4o-mini"]:
-                try:
-                    completion = client.chat.completions.parse(
-                        model=model,
-                        messages=[
-                            {"role": "system", "content": dynamic_prompt},
-                            {"role": "user", "content": f"USER INTENT: {intent}\n\nINPUT DATA TABLE:\n{chunk_text}"}
-                        ],
-                        response_format=UserMasterResult,
-                        timeout=120,
-                        temperature=0.0
-                    )
-                    return [u.__dict__ for u in completion.choices[0].message.parsed.users]
-                except Exception as e:
-                    # Log error but continue to next model — never silently swallow
-                    log.warning("PDF/Word Batch %d model=%s error: %s: %s", batch_idx, model, type(e).__name__, e)
+            for k_idx, current_key in enumerate(healthy_keys):
+                current_client = get_openai_client(current_key)
+                if not current_client:
                     continue
+                
+                if current_key.startswith("AIzaSy"):
+                    models_to_try = ["gemini-2.5-flash"]
+                    time.sleep(1.0)
+                else:
+                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                    
+                for model in models_to_try:
+                    try:
+                        completion = current_client.chat.completions.parse(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": dynamic_prompt},
+                                {"role": "user", "content": f"USER INTENT: {intent}\n\nINPUT DATA TABLE:\n{chunk_text}"}
+                            ],
+                            response_format=UserMasterResult,
+                            timeout=60,
+                            temperature=0.0
+                        )
+                        return [u.__dict__ for u in completion.choices[0].message.parsed.users]
+                    except Exception as e:
+                        log.warning("PDF/Word Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
+                        err_str = str(e).lower()
+                        if "quota" in err_str or "rate limit" in err_str or "429" in err_str:
+                            break
+                        else:
+                            if model == models_to_try[0] and len(models_to_try) > 1:
+                                time.sleep(1)
+                                continue
             return []
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_idx = {executor.submit(process_simple_chunk, text, i): i for i, text in enumerate(chunks)}
             completed = 0
+            ordered_results = {}
             for future in as_completed(future_to_idx):
-                all_users.extend(future.result())
+                idx = future_to_idx[future]
+                ordered_results[idx] = future.result()
                 completed += 1
                 progress_bar.progress(completed / len(chunks))
         
         status_text.empty()
         progress_bar.empty()
+        
+        all_users = []
+        for i in sorted(ordered_results.keys()):
+            all_users.extend(ordered_results[i])
         
         raw_df = pd.DataFrame(all_users)
         return _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
