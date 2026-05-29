@@ -2,7 +2,7 @@
 import re
 import pandas as pd
 
-def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Aone") -> pd.DataFrame:
+def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.DataFrame:
     """
     After AI extraction, merge rows for the same user into one.
     Identifies duplicates by employeeId (preferred) or userName.

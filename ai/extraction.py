@@ -139,7 +139,7 @@ def get_openai_client(api_key):
         )
     return OpenAI(api_key=api_key_str)
 
-def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Aone"):
+def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Med"):
     """Universal AI User Extraction Engine with Chunking & Failover."""
     api_key_str = str(api_key).strip()
     client = get_openai_client(api_key_str)

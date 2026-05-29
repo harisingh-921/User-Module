@@ -390,7 +390,7 @@ with st.sidebar:
         if srcs:
             st.success(f"📂 **{len(srcs)} file(s)** active")
 
-    pass_prefix = st.text_input("Password Prefix", value="Aone", help="Prefix for auto-generated passwords")
+    pass_prefix = st.text_input("Password Prefix", value="Med", help="Prefix for auto-generated passwords")
 
     st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
     st.markdown("""
@@ -420,7 +420,7 @@ with st.sidebar:
         
         **2. Smart Fixes**
         * *"Fix all usernames to be lowercase with no spaces"*
-        * *"Fill missing passwords using Aone@123"*
+        * *"Fill missing passwords using Med@123"*
         
         ---
         ### 🎯 Smart Context (Pre-Extraction)
