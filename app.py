@@ -610,7 +610,7 @@ if 'df_users' in st.session_state:
             gridOptions=gb.build(),
             theme='alpine',
             height=600,
-            update_mode=GridUpdateMode.VALUE_CHANGED,
+            update_mode=GridUpdateMode.VALUE_CHANGED | GridUpdateMode.SELECTION_CHANGED,
             enable_enterprise_modules=True,
             fit_columns_on_grid_load=False,
             reload_data=True,
