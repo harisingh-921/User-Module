@@ -246,6 +246,20 @@ def _df_hash(df: pd.DataFrame, cols: list) -> int:
     except Exception:
         return 0  # fallback: treat as changed so diff runs
 
+def _update_users_hash() -> None:
+    """Immediately updates _df_users_hash in SessionState based on current df_users."""
+    if 'df_users' in st.session_state and st.session_state.df_users is not None:
+        df = st.session_state.df_users
+        watch_cols = [
+            c for c in df.columns
+            if not str(c).startswith('_')
+            and not str(c).startswith('::')
+            and c != '#'
+        ]
+        st.session_state._df_users_hash = _df_hash(df, watch_cols)
+    else:
+        st.session_state._df_users_hash = None
+
 def _push_diff(stack: list, entry: dict) -> None:
     """Append an undo/redo entry and evict the oldest if over limit."""
     stack.append(entry)
@@ -649,7 +663,7 @@ if 'df_users' in st.session_state:
             new_row['#'] = len(df) + 1
             new_row['isEnabled'] = "Yes"
             st.session_state.df_users = pd.concat([df, new_row], ignore_index=True)
-            st.session_state._df_users_hash = None  # invalidate: row count changed
+            _update_users_hash()  # update cached hash immediately
             st.session_state.grid_key += 1
             st.rerun()
 
@@ -667,7 +681,7 @@ if 'df_users' in st.session_state:
                 st.session_state.df_users = df[~df['#'].isin(delete_ids)].reset_index(drop=True)
                 # Re-generate serial numbers
                 st.session_state.df_users['#'] = range(1, len(st.session_state.df_users) + 1)
-                st.session_state._df_users_hash = None  # invalidate: row count changed
+                _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.rerun()
             else:
@@ -676,7 +690,7 @@ if 'df_users' in st.session_state:
         if c_u.button("↩️ Undo", help="Undoes bulk actions like Delete/AI. (Jumps to top)"):
             if st.session_state.get('undo_stack'):
                 st.session_state.df_users = _pop_undo(df)
-                st.session_state._df_users_hash = None  # invalidate: state replaced
+                _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.session_state.just_undone = True
                 st.rerun()
@@ -684,7 +698,7 @@ if 'df_users' in st.session_state:
         if c_r.button("↪️ Redo", help="Redoes bulk actions. (Jumps to top)"):
             if st.session_state.get('redo_stack'):
                 st.session_state.df_users = _pop_redo(df)
-                st.session_state._df_users_hash = None  # invalidate: state replaced
+                _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.session_state.just_undone = True
                 st.rerun()
@@ -702,7 +716,7 @@ if 'df_users' in st.session_state:
                 saved_df['#'] = range(1, len(saved_df) + 1)
             
             st.session_state.df_users = saved_df
-            st.session_state._df_users_hash = None  # invalidate hash
+            _update_users_hash()                    # update cached hash immediately
             st.session_state._excel_cache = {}      # clear excel cache
             
             # 2. RUN VALIDATION (For reporting only)
@@ -769,7 +783,7 @@ if 'df_users' in st.session_state:
                 if pc1.button("✅ Confirm & Apply", type="primary", width="stretch"):
                     _save_state()
                     st.session_state.df_users        = preview['updated_df']
-                    st.session_state._df_users_hash  = None
+                    _update_users_hash()  # update cached hash immediately
                     st.session_state._ai_preview     = None
                     st.session_state.grid_key        += 1
                     st.rerun()

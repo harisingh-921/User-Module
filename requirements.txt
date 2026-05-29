@@ -1,0 +1,11 @@
+streamlit>=1.35.0
+pandas>=2.0.0
+openpyxl>=3.1.0
+xlsxwriter>=3.1.0
+pymupdf>=1.22.0
+python-docx>=0.8.11
+openai>=1.0.0
+pydantic>=2.0.0
+streamlit-aggrid>=0.3.4
+toml>=0.10.2
+pytest>=7.0.0
