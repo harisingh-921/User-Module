@@ -3,9 +3,12 @@ import streamlit as st
 import pandas as pd
 import io
 import os
+import logging
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 from ai.openai_service import openai_extract_users, local_extract_users, _merge_duplicate_users
 from config.constants import USER_MASTER_COLS
+
+log = logging.getLogger(__name__)
 
 # --- PAGE CONFIG ---
 st.set_page_config(
@@ -348,7 +351,7 @@ with st.sidebar:
     if os.path.exists(_logo_path):
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image(_logo_path, use_container_width=True)
+            st.image(_logo_path, width="stretch")
     else:
         st.markdown("""
     <div style='text-align:center; padding: 20px 10px 14px 10px;'>
@@ -388,7 +391,7 @@ with st.sidebar:
     user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
 
     st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-    if st.button("🗑️ Full Reset", use_container_width=True):
+    if st.button("🗑️ Full Reset", width="stretch"):
         st.cache_data.clear()
         for key in list(st.session_state.keys()): del st.session_state[key]
         st.rerun()
@@ -416,21 +419,15 @@ with st.sidebar:
 
 # --- MAIN LOGIC ---
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
-print(f"[DEBUG] st.secrets.get('OPENAI_API_KEY') found: {bool(st.secrets.get('OPENAI_API_KEY'))}")
 if not api_key:
     try:
         import toml
         secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
-        print(f"[DEBUG] Checking fallback secrets_path: {secrets_path}")
         if os.path.exists(secrets_path):
-            print(f"[DEBUG] Fallback secrets_path exists!")
             secrets_data = toml.load(secrets_path)
             api_key = secrets_data.get("OPENAI_API_KEY", "") or secrets_data.get("GEMINI_API_KEY", "")
-            print(f"[DEBUG] Loaded api_key from secrets_path: {bool(api_key)}")
-        else:
-            print(f"[DEBUG] Fallback secrets_path does NOT exist!")
-    except Exception as e:
-        print(f"[DEBUG] Exception loading fallback secrets: {e}")
+    except Exception:
+        pass
 
 if srcs:
     if st.button("🚀 Process User Data", type="primary"):
@@ -439,7 +436,6 @@ if srcs:
             ai_failed = False
             
             # --- Try AI extraction first (if API key available) ---
-            print(f"[DEBUG] Process button clicked. api_key length: {len(api_key) if api_key else 0}")
             if api_key:
                 for src in srcs:
                     st.write(f"📄 AI Extraction: {src.name}...")
@@ -647,7 +643,7 @@ if 'df_users' in st.session_state:
         # --- GRID CONTROLS ---
         c_add, c_del, c_u, c_r, c_save = st.columns([1, 1, 0.5, 0.5, 2])
 
-        if c_add.button("➕ ADD ROW", use_container_width=True):
+        if c_add.button("➕ ADD ROW", width="stretch"):
             _save_state()
             new_row = pd.DataFrame([{col: "" for col in df.columns}])
             new_row['#'] = len(df) + 1
@@ -657,7 +653,7 @@ if 'df_users' in st.session_state:
             st.session_state.grid_key += 1
             st.rerun()
 
-        if c_del.button("🗑️ DELETE", use_container_width=True):
+        if c_del.button("🗑️ DELETE", width="stretch"):
             sel_rows = grid_response.get('selected_rows')
             if sel_rows is not None and len(sel_rows) > 0:
                 _save_state()
@@ -693,7 +689,7 @@ if 'df_users' in st.session_state:
                 st.session_state.just_undone = True
                 st.rerun()
 
-        if c_save.button("💾 SAVE AND VALIDATE", type="primary", use_container_width=True):
+        if c_save.button("💾 SAVE AND VALIDATE", type="primary", width="stretch"):
             grid_data = grid_response['data'].copy()
             
             # 1. ALWAYS SAVE FIRST (As requested: never block the user)
@@ -768,16 +764,16 @@ if 'df_users' in st.session_state:
                 if preview['diff_df'].empty:
                     st.info("ℹ️ No cell-level changes detected by AI.")
                 else:
-                    st.dataframe(preview['diff_df'], use_container_width=True, hide_index=True)
+                    st.dataframe(preview['diff_df'], width="stretch", hide_index=True)
                 pc1, pc2, _ = st.columns([1, 1, 4])
-                if pc1.button("✅ Confirm & Apply", type="primary", use_container_width=True):
+                if pc1.button("✅ Confirm & Apply", type="primary", width="stretch"):
                     _save_state()
                     st.session_state.df_users        = preview['updated_df']
                     st.session_state._df_users_hash  = None
                     st.session_state._ai_preview     = None
                     st.session_state.grid_key        += 1
                     st.rerun()
-                if pc2.button("❌ Cancel", use_container_width=True):
+                if pc2.button("❌ Cancel", width="stretch"):
                     st.session_state._ai_preview = None
                     st.rerun()
         # ─────────────────────────────────────────────────────────────────────────────
@@ -824,7 +820,7 @@ if 'df_users' in st.session_state:
             data=_excel_bytes,
             file_name="user_master_export.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            width="stretch"
         )
 else:
     st.info("👋 Upload an Excel or CSV file in the sidebar to begin automated extraction.")

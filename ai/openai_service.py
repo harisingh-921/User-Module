@@ -2,6 +2,8 @@
 import json
 import re
 import base64
+import logging
+import traceback
 import streamlit as st
 import pandas as pd
 import fitz
@@ -12,6 +14,8 @@ import docx
 from openai import OpenAI
 from config.constants import USER_MASTER_COLS
 from models.schemas import UserMasterResult, UserField
+
+log = logging.getLogger(__name__)
 
 # ── Enterprise Safety Limits (edit here to tune) ─────────────────────────────
 _MAX_FILE_SIZE_MB   = 20      # Hard reject uploads larger than this
@@ -122,93 +126,6 @@ OUTPUT FORMAT (JSON):
   ]
 }}
 """
-
-def _normalize_file(raw_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Converts any file format into a standard flat roster DataFrame.
-    For Yes/No role-matrix files: detects the role columns, collapses them
-    into a pipe-separated 'roles' column, and returns a clean DataFrame.
-    For standard roster files: auto-detects headers and returns as-is.
-    """
-    # Stringify everything for analysis
-    str_df = raw_df.astype(str).applymap(lambda x: x.strip())
-    
-    # ── Detect Yes/No matrix format ──────────────────────────────────────
-    # Count Yes/No values per column
-    yes_no_cols = []
-    for col in str_df.columns:
-        vals = str_df[col].str.lower()
-        yn_count = vals.isin(['yes', 'no']).sum()
-        if yn_count >= 2:  # At least 2 yes/no values = role column
-            yes_no_cols.append(col)
-    
-    if len(yes_no_cols) >= 2:
-        # This is a Yes/No matrix. Find the header row:
-        # The header row is the last row BEFORE the first Yes/No data row.
-        first_yn_row = None
-        for idx, row in str_df.iterrows():
-            if row.str.lower().isin(['yes', 'no']).any():
-                first_yn_row = idx
-                break
-        
-        if first_yn_row is not None and first_yn_row > 0:
-            # The row just before the first Yes/No row is the role name row
-            role_name_row_idx = first_yn_row - 1
-            role_name_row = str_df.loc[role_name_row_idx]
-            
-            # Build a map: col_index → role_name (only for yes/no cols)
-            role_col_map = {}
-            for col in yes_no_cols:
-                role_name = role_name_row[col].strip()
-                if role_name and role_name.lower() not in ('nan', '-', ''):
-                    role_col_map[col] = role_name
-            
-            # Find the name/user column (non-yes-no column with names)
-            other_cols = [c for c in raw_df.columns if c not in yes_no_cols]
-            
-            # Data rows = rows from first_yn_row onwards
-            data_df = raw_df.loc[first_yn_row:].copy().reset_index(drop=True)
-            data_str = str_df.loc[first_yn_row:].reset_index(drop=True)
-            
-            # Build roles column per row
-            def get_roles(row_idx):
-                assigned = []
-                for col, role_name in role_col_map.items():
-                    val = data_str.loc[row_idx, col].strip().lower()
-                    if val == 'yes':
-                        assigned.append(role_name)
-                return '|'.join(assigned)
-            
-            data_df['roles'] = [get_roles(i) for i in range(len(data_df))]
-            
-            # Drop individual role columns, keep others + new roles col
-            data_df = data_df.drop(columns=list(role_col_map.keys()), errors='ignore')
-            
-            # Use role name row values as column headers for other cols
-            new_cols = {}
-            for col in other_cols:
-                label = role_name_row[col].strip()
-                if label and label.lower() not in ('nan', '-', ''):
-                    new_cols[col] = label
-                else:
-                    new_cols[col] = str(col)
-            data_df = data_df.rename(columns=new_cols)
-            
-            return data_df
-    
-    # ── Standard format: auto-detect header row ───────────────────────────
-    # Find the first row that looks like a header (mostly text, not Yes/No)
-    for idx, row in str_df.iterrows():
-        vals = row.str.lower()
-        if not vals.isin(['yes', 'no', 'nan', '-']).all():
-            header = raw_df.loc[idx].astype(str).str.strip().tolist()
-            data = raw_df.loc[idx+1:].copy().reset_index(drop=True)
-            data.columns = header
-            return data
-    
-    # Fallback: return as-is with auto column names
-    raw_df.columns = [f"col_{i}" for i in range(len(raw_df.columns))]
-    return raw_df
 
 
 def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Aone") -> pd.DataFrame:
@@ -1151,12 +1068,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 result = [u.__dict__ for u in completion2.choices[0].message.parsed.users]
                             return result
                         except Exception as e:
-                            print(f"[DEBUG] Batch {batch_idx} AI Error using model={model}: {e}")
-                            import traceback
-                            traceback.print_exc()
+                            log.warning("Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
                             err_str = str(e).lower()
                             if "quota" in err_str or "rate limit" in err_str or "429" in err_str:
-                                print(f"[Batch {batch_idx}] API Key #{k_idx+1} hit rate limit/quota. Trying next key...")
+                                log.info("Batch %d API Key #%d hit rate limit/quota. Trying next key...", batch_idx, k_idx + 1)
                                 break # break the model loop to try the next key
                             else:
                                 if model == models_to_try[0]:
@@ -1259,7 +1174,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     return [u.__dict__ for u in completion.choices[0].message.parsed.users]
                 except Exception as e:
                     # Log error but continue to next model — never silently swallow
-                    print(f"[PDF/Word Batch {batch_idx}] model={model} error: {type(e).__name__}: {e}")
+                    log.warning("PDF/Word Batch %d model=%s error: %s: %s", batch_idx, model, type(e).__name__, e)
                     continue
             return []
 
@@ -1278,9 +1193,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         return _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
 
     except Exception as e:
-        import traceback
-        print("[DEBUG] Exception in openai_extract_users:")
-        traceback.print_exc()
+        log.error("Exception in openai_extract_users", exc_info=True)
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 
@@ -1381,7 +1294,7 @@ def apply_ai_smart_context(df, command, api_key):
                         affected += 1
 
             if blocked_fields:
-                print(f"[AI Safety] Blocked hallucinated field(s): {blocked_fields}")
+                log.warning("AI Safety: Blocked hallucinated field(s): %s", blocked_fields)
 
             summary = f"AI applied changes to {len(updates)} row(s) ({affected} cell update(s))."
             if blocked_fields:
@@ -1390,17 +1303,17 @@ def apply_ai_smart_context(df, command, api_key):
 
         except json.JSONDecodeError as e:
             last_error = f"AI returned malformed JSON: {e}"
-            print(f"[Smart Context attempt {attempt+1}] JSONDecodeError: {e}")
+            log.warning("Smart Context attempt %d JSONDecodeError: %s", attempt + 1, e)
             break   # No point retrying a parse error
 
         except Exception as e:
             err_str = str(e)
             last_error = err_str[:200]
-            print(f"[Smart Context attempt {attempt+1}] {type(e).__name__}: {err_str}")
+            log.warning("Smart Context attempt %d %s: %s", attempt + 1, type(e).__name__, err_str)
             # Rate limit or transient: back off and retry
             if "429" in err_str or "timeout" in err_str.lower() or "connection" in err_str.lower():
                 wait = _AI_RETRY_BASE_WAIT * (2 ** attempt)
-                print(f"  Retrying in {wait}s...")
+                log.info("Retrying in %ds...", wait)
                 time.sleep(wait)
                 continue
             break  # Non-retryable error
