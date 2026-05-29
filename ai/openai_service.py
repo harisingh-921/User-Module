@@ -693,7 +693,11 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
         TICK_VALUES = {'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}  # includes √ ✓ ✔ ☑
         roles_col_name = None
         for h in headers:
-            if any(kw in h.lower() for kw in ['role', 'audit user', 'assigned role', 'user role', 'incharge', 'admin', 'validation']):
+            if h in col_mapping:
+                continue
+            if 'module|' in h.lower():  # Specific role columns in module sections are never running roles columns
+                continue
+            if any(kw in h.lower() for kw in ['role', 'audit user', 'assigned role', 'user role', 'incharge', 'admin', 'running role']):
                 col_vals = data_df[h].dropna().astype(str).str.strip()
                 has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
                 if not has_ticks:
@@ -709,7 +713,13 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
             is_role_header = any(kw in src_lower for kw in role_keywords)
             if is_role_header and src_col not in col_mapping and src_col != roles_col_name:
                 col_vals = data_df[src_col].dropna().astype(str).str.strip()
-                has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
+                # If it's a module column, any non-empty, non-negative value is considered a valid role assignment tick!
+                if 'module|' in src_lower:
+                    NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
+                    has_ticks = col_vals.apply(lambda v: v.lower() not in NEGATIVE_VALUES).any()
+                else:
+                    has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
+                
                 if has_ticks:
                     role_cols[src_col] = src_col
         
@@ -752,7 +762,15 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                 assigned_roles = []
                 for rc_col, rc_name in role_cols.items():
                     rv = str(row.get(rc_col, '')).strip()
-                    if rv.lower() in TICK_VALUES or rv in TICK_VALUES:
+                    # Check if the row has a valid tick in this role column
+                    is_ticked = False
+                    if 'module|' in rc_col.lower():
+                        NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
+                        is_ticked = rv.lower() not in NEGATIVE_VALUES
+                    else:
+                        is_ticked = rv.lower() in TICK_VALUES or rv in TICK_VALUES
+                    
+                    if is_ticked:
                         clean_rc_name = rc_name.split('|')[-1] if '|' in rc_name else rc_name
                         parent_pre = rc_name.split('|')[0] if '|' in rc_name else ""
                         if parent_pre and parent_pre.lower() not in clean_rc_name.lower():
