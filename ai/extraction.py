@@ -212,8 +212,9 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             return None
             
         any_openai_healthy = any(not k.startswith("AIzaSy") for k in healthy_keys)
-        max_workers = 5 if any_openai_healthy else 1
-        log.info("Starting AI extraction. Healthy keys count: %d, OpenAI healthy: %s. Concurrency: %d workers.", len(healthy_keys), any_openai_healthy, max_workers)
+        # Gemini: use 1 worker per healthy key (round-robin). OpenAI: up to 5.
+        max_workers = 5 if any_openai_healthy else min(len(healthy_keys), 3)
+        log.info("Starting AI extraction. Healthy keys: %d, OpenAI healthy: %s, Workers: %d", len(healthy_keys), any_openai_healthy, max_workers)
 
         dynamic_prompt = USER_EXTRACTION_PROMPT.format(pass_prefix=pass_prefix)
         ext = filename.lower()
@@ -437,17 +438,16 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             
             def process_chunk(chunk_data, batch_idx):
                 chunk_text = chunk_data['text']
+                # Round-robin: assign each batch a primary key to spread load
+                key_order = [healthy_keys[(batch_idx + i) % len(healthy_keys)] for i in range(len(healthy_keys))]
                 
-                for k_idx, current_key in enumerate(healthy_keys):
+                for k_idx, current_key in enumerate(key_order):
                     current_client = get_openai_client(current_key)
                     if not current_client:
                         continue
                     
                     if current_key.startswith("AIzaSy"):
                         models_to_try = ["gemini-2.5-flash"]
-                        # For Gemini Free Tier, sequential requests can still trigger 15 RPM rate limits.
-                        # Adding a 1-second delay ensures we stay perfectly within boundaries.
-                        time.sleep(1.0)
                     else:
                         models_to_try = ["gpt-4o-mini", "gpt-4o"]
                         
@@ -482,12 +482,12 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             log.warning("Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
                             err_str = str(e).lower()
                             if "quota" in err_str or "rate limit" in err_str or "429" in err_str:
-                                log.info("Batch %d API Key #%d hit rate limit/quota. Trying next key...", batch_idx, k_idx + 1)
-                                break # break the model loop to try the next key
+                                log.info("Batch %d key #%d rate limited. Trying next key...", batch_idx, k_idx + 1)
+                                break
                             else:
                                 if model == models_to_try[0] and len(models_to_try) > 1:
                                     time.sleep(1)
-                                    continue # try next model
+                                    continue
                 return []
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -566,14 +566,14 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         status_text = st.empty()
         
         def process_simple_chunk(chunk_text, batch_idx):
-            for k_idx, current_key in enumerate(healthy_keys):
+            key_order = [healthy_keys[(batch_idx + i) % len(healthy_keys)] for i in range(len(healthy_keys))]
+            for k_idx, current_key in enumerate(key_order):
                 current_client = get_openai_client(current_key)
                 if not current_client:
                     continue
                 
                 if current_key.startswith("AIzaSy"):
                     models_to_try = ["gemini-2.5-flash"]
-                    time.sleep(1.0)
                 else:
                     models_to_try = ["gpt-4o-mini", "gpt-4o"]
                     
