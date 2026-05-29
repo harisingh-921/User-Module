@@ -351,7 +351,6 @@ def _pop_redo(current_df: pd.DataFrame):
 st.markdown("""
 <div class="premium-header">
     <h1>User Master Intelligence</h1>
-    <p style='margin-top:10px; margin-bottom:0; font-size: 19px; opacity: 0.95; font-weight: 300;'>Automated HR & Access Control Data Mapping</p>
 </div>
 """, unsafe_allow_html=True)
 
