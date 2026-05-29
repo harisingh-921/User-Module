@@ -745,7 +745,7 @@ if 'df_users' in st.session_state:
         # --- AI CONFIGURATION ASSISTANT ---
         st.markdown("---")
         st.subheader("💬 AI Configuration Assistant")
-        chat_cmd = st.text_input("✨ Commands...", placeholder="e.g. 'Disable all doctors in the Emergency department'")
+        chat_cmd = st.text_input("✨ Commands...", placeholder="e.g. 'Change role to Admin for John Doe'")
 
         if st.button("🪄 Apply AI"):
             if not chat_cmd:
