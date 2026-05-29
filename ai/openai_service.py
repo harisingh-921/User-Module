@@ -875,7 +875,8 @@ def get_openai_client(api_key):
 
 def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Aone"):
     """Universal AI User Extraction Engine with Chunking & Failover."""
-    client = get_openai_client(api_key)
+    api_key_str = str(api_key).strip()
+    client = get_openai_client(api_key_str)
     if not client: return None
 
     # ── File-size guard ───────────────────────────────────────────────────────
@@ -914,21 +915,60 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 
                 str_df = raw_df.astype(str).map(lambda x: str(x).strip())
                 
-                # Detect header row for THIS sheet
-                first_data_row = -1
-                for i, row in str_df.iterrows():
-                    row_vals = row.str.lower()
-                    if row_vals.isin(['yes', 'no']).any():
-                        first_data_row = i
-                        break
-                    # Check for common header keywords
-                    if any(kw in str(v).lower() for kw in ['name', 'email', 'employee', 'id', 'mobile', 'phone', 'department', 'unit', 'role'] for v in row.values if v):
-                        first_data_row = i + 1
+                # --- Improved Auto-detect header and sub-header row (aligned exactly with local_extract_users) ---
+                header_row_idx = 0
+                max_matches = 0
+                for idx, row in str_df.iterrows():
+                    vals = row.str.lower().tolist()
+                    header_keywords = ['name', 'email', 'employee', 'id', 'mobile', 'phone', 
+                                     'department', 'unit', 'role', 'designation', 'staff',
+                                     'first', 'last', 'username', 'password']
+                    matches = sum(1 for v in vals if any(kw in str(v).lower() for kw in header_keywords))
+                    if matches > max_matches:
+                        max_matches = matches
+                        header_row_idx = idx
+                    if matches >= 5:
                         break
                 
-                if first_data_row == -1:
-                    first_data_row = 1 if len(raw_df) > 1 else 0
+                is_sub_header = False
+                if header_row_idx + 1 < len(raw_df):
+                    next_row = raw_df.iloc[header_row_idx + 1]
+                    name_email_empty = True
                     
+                    headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
+                    col_mapping_temp = {}
+                    for target_field in ['firstName', 'lastName', 'employeeId', 'email']:
+                        tf_lower = target_field.lower()
+                        for src_col, src_lower in headers_lower_temp.items():
+                            if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                                col_mapping_temp[src_col] = target_field
+                                break
+                        else:
+                            aliases = {
+                                'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
+                                'email': ['e-mail', 'mail id', 'official email', 'email address'],
+                                'firstName': ['first name', 'fname', 'given name', 'name', 'employee name', 'staff name'],
+                            }.get(target_field, [])
+                            for alias in aliases:
+                                for src_col, src_lower in headers_lower_temp.items():
+                                    if alias in src_lower:
+                                        col_mapping_temp[src_col] = target_field
+                                        break
+                                if target_field in col_mapping_temp.values():
+                                    break
+
+                    for src_col, target_field in col_mapping_temp.items():
+                        col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
+                        val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
+                        if val and val not in ('nan', 'none', '-'):
+                            name_email_empty = False
+                            break
+                    
+                    text_cells = sum(1 for v in next_row.values if str(v).strip() and str(v).strip().lower() not in ('nan', 'none', '-'))
+                    if name_email_empty and text_cells >= 2:
+                        is_sub_header = True
+
+                first_data_row = header_row_idx + 2 if is_sub_header else header_row_idx + 1
                 header_rows_df = raw_df.iloc[:first_data_row]
                 data_rows_df = raw_df.iloc[first_data_row:]
                 
@@ -938,15 +978,66 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 sheet_header_context = f"COLUMN HEADERS (from '{sheet_name}'):\n" + "\n".join(row_to_str(r) for _, r in header_rows_df.iterrows())
                 
                 # --- IDENTIFY TICK-MARKED ROLE COLUMNS IN PYTHON ---
-                header_row_idx = first_data_row - 1 if first_data_row > 0 else 0
-                headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
-                
+                # Robust sub-header and parent forward-filling (aligned with local_extract_users)
+                if is_sub_header:
+                    headers = []
+                    parent_headers = raw_df.iloc[header_row_idx].tolist()
+                    filled_parents = []
+                    last_parent = ""
+                    for p in parent_headers:
+                        p_str = str(p).strip()
+                        if p_str and p_str.lower() not in ('nan', 'none', '-'):
+                            last_parent = p_str
+                        filled_parents.append(last_parent)
+
+                    for c_idx in range(len(raw_df.columns)):
+                        parent_h = filled_parents[c_idx]
+                        child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
+                        
+                        parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
+                        child_clean = "" if child_h.lower() in ('nan', 'none', '-') else child_h
+                        
+                        if parent_clean and child_clean:
+                            if parent_clean.lower() == child_clean.lower():
+                                headers.append(child_clean)
+                            else:
+                                headers.append(f"{parent_clean}|{child_clean}")
+                        elif child_clean:
+                            headers.append(child_clean)
+                        elif parent_clean:
+                            headers.append(parent_clean)
+                        else:
+                            headers.append(f"col_{c_idx}")
+                else:
+                    headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+
+                # Deduplicate columns to prevent Series indexing issues
+                unique_headers = []
+                header_counts = {}
+                for h in headers:
+                    if h in header_counts:
+                        header_counts[h] += 1
+                        unique_headers.append(f"{h}_{header_counts[h]}")
+                    else:
+                        header_counts[h] = 0
+                        unique_headers.append(h)
+                headers = unique_headers
+
                 role_cols = {}
+                role_keywords = ['role', 'audit', 'incharge', 'admin', 'user', 'manager', 
+                                'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff', 'analyst', 'advisor', 'preventionist']
                 for col_idx, header in enumerate(headers):
                     header_lower = header.lower()
-                    is_role_header = any(kw in header_lower for kw in ['role', 'audit', 'incharge', 'admin', 'user', 'manager', 'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff'])
+                    is_role_header = any(kw in header_lower for kw in role_keywords)
                     col_values = data_rows_df.iloc[:, col_idx].dropna().astype(str).str.strip().str.lower()
-                    has_ticks = col_values.isin(['✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v']).any()
+                    
+                    if 'module|' in header_lower:
+                        NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
+                        has_ticks = col_values.apply(lambda v: v.lower() not in NEGATIVE_VALUES).any()
+                    else:
+                        TICK_VALUES = {'✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}
+                        has_ticks = col_values.isin(TICK_VALUES).any()
+                        
                     if is_role_header and has_ticks:
                         role_cols[col_idx] = header
                         has_tick_role_columns = True
@@ -956,8 +1047,20 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     row_roles = []
                     for col_idx, role_name in role_cols.items():
                         val = str(row.iloc[col_idx]).strip().lower() if col_idx < len(row) else ""
-                        if val in ('✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v'):
-                            row_roles.append(role_name)
+                        
+                        is_ticked = False
+                        if 'module|' in role_name.lower():
+                            NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
+                            is_ticked = val not in NEGATIVE_VALUES
+                        else:
+                            TICK_VALUES = {'✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}
+                            is_ticked = val in TICK_VALUES
+                            
+                        if is_ticked:
+                            clean_role_name = role_name
+                            if '|' in clean_role_name:
+                                clean_role_name = clean_role_name.split('|')[-1]
+                            row_roles.append(clean_role_name)
                     
                     raw_vals = []
                     for v in row.values:
@@ -1048,6 +1151,9 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 result = [u.__dict__ for u in completion2.choices[0].message.parsed.users]
                             return result
                         except Exception as e:
+                            print(f"[DEBUG] Batch {batch_idx} AI Error using model={model}: {e}")
+                            import traceback
+                            traceback.print_exc()
                             err_str = str(e).lower()
                             if "quota" in err_str or "rate limit" in err_str or "429" in err_str:
                                 print(f"[Batch {batch_idx}] API Key #{k_idx+1} hit rate limit/quota. Trying next key...")
@@ -1056,7 +1162,6 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 if model == models_to_try[0]:
                                     time.sleep(1)
                                     continue # try next model
-                                print(f"Batch {batch_idx} AI Error: {e}")
                 return []
 
             # Gemini Free Tier has a strict 15 RPM / concurrency limit.
@@ -1173,6 +1278,9 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         return _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
 
     except Exception as e:
+        import traceback
+        print("[DEBUG] Exception in openai_extract_users:")
+        traceback.print_exc()
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 

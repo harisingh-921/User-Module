@@ -416,15 +416,21 @@ with st.sidebar:
 
 # --- MAIN LOGIC ---
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
+print(f"[DEBUG] st.secrets.get('OPENAI_API_KEY') found: {bool(st.secrets.get('OPENAI_API_KEY'))}")
 if not api_key:
     try:
         import toml
         secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
+        print(f"[DEBUG] Checking fallback secrets_path: {secrets_path}")
         if os.path.exists(secrets_path):
+            print(f"[DEBUG] Fallback secrets_path exists!")
             secrets_data = toml.load(secrets_path)
             api_key = secrets_data.get("OPENAI_API_KEY", "") or secrets_data.get("GEMINI_API_KEY", "")
-    except Exception:
-        pass
+            print(f"[DEBUG] Loaded api_key from secrets_path: {bool(api_key)}")
+        else:
+            print(f"[DEBUG] Fallback secrets_path does NOT exist!")
+    except Exception as e:
+        print(f"[DEBUG] Exception loading fallback secrets: {e}")
 
 if srcs:
     if st.button("🚀 Process User Data", type="primary"):
@@ -433,6 +439,7 @@ if srcs:
             ai_failed = False
             
             # --- Try AI extraction first (if API key available) ---
+            print(f"[DEBUG] Process button clicked. api_key length: {len(api_key) if api_key else 0}")
             if api_key:
                 for src in srcs:
                     st.write(f"📄 AI Extraction: {src.name}...")
@@ -800,8 +807,9 @@ if 'df_users' in st.session_state:
                 # Auto-fit column widths (kept from previous step for usability)
                 _worksheet = _writer.sheets['Users']
                 for _i, _col in enumerate(_export_df.columns):
+                    _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]
                     _max_len = max(
-                        _export_df[_col].astype(str).map(len).max(),
+                        max(_col_str_lengths) if _col_str_lengths else 0,
                         len(str(_col))
                     ) + 2
                     _worksheet.set_column(_i, _i, min(_max_len, 50))
