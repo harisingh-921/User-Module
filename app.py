@@ -416,6 +416,15 @@ with st.sidebar:
 
 # --- MAIN LOGIC ---
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
+if not api_key:
+    try:
+        import toml
+        secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
+        if os.path.exists(secrets_path):
+            secrets_data = toml.load(secrets_path)
+            api_key = secrets_data.get("OPENAI_API_KEY", "") or secrets_data.get("GEMINI_API_KEY", "")
+    except Exception:
+        pass
 
 if srcs:
     if st.button("🚀 Process User Data", type="primary"):

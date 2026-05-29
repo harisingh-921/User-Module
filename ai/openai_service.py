@@ -439,6 +439,23 @@ def get_all_api_keys(primary_key=None):
                 keys.append(val)
     except Exception:
         pass
+        
+    # Manual fallback: load from secrets.toml relative to this file's folder
+    if not keys or len(keys) <= (1 if primary_key else 0):
+        try:
+            import os
+            import toml
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            secrets_path = os.path.join(base_dir, ".streamlit", "secrets.toml")
+            if os.path.exists(secrets_path):
+                secrets_data = toml.load(secrets_path)
+                for k in ["OPENAI_API_KEY", "OPENAI_API_KEY_2", "OPENAI_API_KEY_3", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+                    val = str(secrets_data.get(k, "")).strip()
+                    if val and val not in keys:
+                        keys.append(val)
+        except Exception:
+            pass
+            
     return keys
 
 
