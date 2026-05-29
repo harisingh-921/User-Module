@@ -637,6 +637,20 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                 continue
             if any(v == target_field for v in col_mapping.values()):
                 continue  # Already mapped
+            
+            # Smart email preference: if both Personal and Official exist, prioritize Official
+            if target_field == 'email':
+                official_email_cols = [h for h in headers if 'official' in h.lower() or 'work' in h.lower() or 'corp' in h.lower()]
+                general_email_cols = [h for h in headers if 'email' in h.lower() or 'mail' in h.lower()]
+                best_email_col = None
+                for o_col in official_email_cols:
+                    if o_col in general_email_cols:
+                        best_email_col = o_col
+                        break
+                if best_email_col:
+                    col_mapping[best_email_col] = 'email'
+                    continue
+            
             tf_lower = target_field.lower()
             # Direct match
             for src_col, src_lower in headers_lower.items():
@@ -652,7 +666,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                         for src_col, src_lower in headers_lower.items():
                             if src_col in col_mapping:
                                 continue
-                            if alias in src_lower or src_lower in alias:
+                            if alias in src_lower:
                                 col_mapping[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping.values()):
@@ -661,10 +675,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Aone"):
                 # Broad keyword match for common fields
                 if not any(v == target_field for v in col_mapping.values()):
                     broad_keywords = {
-                        'departments': ['department', 'dept', 'location', 'branch', 'facility', 'site'],
-                        'units': ['unit', 'ward', 'section', 'division'],
+                        'departments': ['department', 'dept'],
+                        'units': ['unit', 'ward', 'division'],
                         'designation': ['designation', 'position', 'title', 'rank', 'category'],
-                        'userName': ['user name', 'username', 'login', 'user id', 'userid'],
+                        'userName': ['user name', 'username'],
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
                         'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
