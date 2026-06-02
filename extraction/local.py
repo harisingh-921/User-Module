@@ -5,7 +5,7 @@ import streamlit as st
 from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
 from extraction.merge import _merge_duplicate_users
 
-def local_extract_users(file_bytes, filename, pass_prefix="Med"):
+def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent=""):
     """
     LOCAL extraction engine — NO AI, NO API calls.
     Reads Excel/CSV, auto-detects headers, maps columns to our schema using
@@ -24,6 +24,37 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med"):
     except Exception as e:
         st.error(f"Error reading {filename}: {e}")
         return pd.DataFrame()
+        
+    # Simple sheet filtering based on user_intent
+    if user_intent and isinstance(user_intent, str):
+        intent_lower = user_intent.lower()
+        filtered_sheets = {}
+        for s_name, s_df in all_sheets.items():
+            s_clean = s_name.lower().replace(' ', '')
+            should_ignore = False
+            
+            import re
+            ignore_matches = re.findall(r'(?:ignore|skip)\s*sheet\s*([0-9]+)', intent_lower)
+            for num in ignore_matches:
+                if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                    should_ignore = True
+                    break
+                    
+            if should_ignore:
+                continue
+                
+            only_matches = re.findall(r'only\s*sheet\s*([0-9]+)', intent_lower)
+            if only_matches:
+                matches_any_only = False
+                for num in only_matches:
+                    if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                        matches_any_only = True
+                        break
+                if not matches_any_only:
+                    continue
+                    
+            filtered_sheets[s_name] = s_df
+        all_sheets = filtered_sheets
     
     all_users = []
     
@@ -281,8 +312,16 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med"):
  
         # --- Detect tick-marked role columns ---
         role_cols = {}
-        role_keywords = ['role', 'audit', 'incharge', 'admin', 'user', 'manager', 
-                        'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff', 'analyst', 'advisor', 'preventionist']
+        role_keywords = [
+            'audit user', 'audit incharge', 'audit admin', 'audit configuration admin', 
+            'audit dashboard viewer', 'non-conformance reporter', 'non-conformance admin', 
+            'non-conformance champion', 'ncrs dashboard viewer', 'incident reporter', 
+            'incident analyst', 'incident admin', 'incident dashboard viewer', 'qi viewer', 
+            'qi owner', 'qi admin', 'qi dashboard viewer', 'risk reporter', 'risk owner', 
+            'risk admin', 'risk auditor', 'proms user', 'proms admin', 'proms notification user', 
+            'accreditation audit user', 'accreditation audit incharge', 'accreditation audit admin',
+            'role'
+        ]
         for src_col in headers:
             src_lower = str(src_col).lower()
             is_role_header = any(kw in src_lower for kw in role_keywords)
@@ -362,6 +401,17 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med"):
                     else:
                         user['roles'] = '|'.join(assigned_roles)
             
+            # Clean up suffix like "- GB11318" from userName/firstName
+            import re
+            for f in ['userName', 'firstName']:
+                val = user.get(f, '')
+                if val and '-' in val:
+                    match = re.search(r'^(.*?)\s*-\s*([a-zA-Z]+[0-9]+[a-zA-Z0-9\-]*)$', val)
+                    if match:
+                        user[f] = match.group(1).strip()
+                        if not user.get('employeeId'):
+                            user['employeeId'] = match.group(2).strip()
+
             # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
             identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'mobile']
             max_parts = 1

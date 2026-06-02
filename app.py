@@ -453,43 +453,85 @@ if srcs:
     if st.button("🚀 Process User Data", type="primary"):
         with st.status(f"🧠 Analyzing {len(srcs)} Document(s)...", expanded=True) as status:
             all_dfs = []
-            ai_failed = False
+            ai_triggered_files = []
+            local_extracted_files = []
             
-            # --- Try AI extraction first (if API key available) ---
-            if api_key:
-                for src in srcs:
-                    st.write(f"📄 AI Extraction: {src.name}...")
-                    file_bytes = src.getvalue()
-                    df_result = openai_extract_users(file_bytes, src.name, api_key, user_intent, pass_prefix)
-                    if df_result is not None and not df_result.empty:
-                        all_dfs.append(df_result)
+            for src in srcs:
+                file_bytes = src.getvalue()
+                filename = src.name
                 
-                if not all_dfs:
-                    ai_failed = True
-                    st.write("⚠️ AI extraction returned 0 users (API keys may be exhausted). Switching to **Local Mode**...")
-            else:
-                ai_failed = True
-                st.write("🔑 No API key found. Using **Local Extraction Mode**...")
-            
-            # --- Fallback to LOCAL extraction (no AI needed) ---
-            if ai_failed:
-                all_dfs = []
-                for src in srcs:
-                    st.write(f"📄 Local Extraction: {src.name}...")
-                    file_bytes = src.getvalue()
-                    df_result = local_extract_users(file_bytes, src.name, pass_prefix)
+                # --- Step 1: Run Local Extraction Parser First ---
+                st.write(f"🔍 Parsing layout locally: {filename}...")
+                df_local = local_extract_users(file_bytes, filename, pass_prefix, user_intent)
+                
+                # --- Step 2: Evaluate if AI is needed ---
+                needs_ai = False
+                reason = ""
+                if user_intent and str(user_intent).strip():
+                    needs_ai = True
+                    reason = "User specified custom extraction rules"
+                elif filename.lower().endswith(('.pdf', '.docx', '.doc')):
+                    needs_ai = True
+                    reason = "Document requires layout-aware PDF/Word parsing"
+                elif df_local is not None and not df_local.empty:
+                    # 1. Check if there are pipe delimited rows that need complex AI parsing
+                    for col in ['firstName', 'lastName', 'employeeId']:
+                        if col in df_local.columns:
+                            if df_local[col].astype(str).str.contains('|', regex=False).any():
+                                needs_ai = True
+                                reason = "Delimited multi-user cells detected"
+                                break
+                    # 2. Check if there are Yes/No columns representing a complex role matrix
+                    if not needs_ai:
+                        for col in df_local.columns:
+                            col_lower = str(col).lower()
+                            if col_lower in ['isenabled', 'enabled', 'active', '#', 'password']:
+                                continue
+                            # If a column contains only Yes/No/nan/empty, it represents a role matrix column!
+                            unique_vals = set(df_local[col].dropna().astype(str).str.strip().str.lower().unique())
+                            if unique_vals and unique_vals.issubset({'yes', 'no', 'nan', '', '-'}):
+                                needs_ai = True
+                                reason = f"Complex Yes/No role columns detected ('{col}')"
+                                break
+                
+                # --- Step 3: Run AI extraction only when needed and API key is present ---
+                if needs_ai and api_key:
+                    st.write(f"🧠 Complex format: Running AI Extraction ({reason})...")
+                    df_result = openai_extract_users(file_bytes, filename, api_key, user_intent, pass_prefix)
                     if df_result is not None and not df_result.empty:
                         all_dfs.append(df_result)
+                        ai_triggered_files.append(filename)
+                    else:
+                        st.write("⚠️ AI extraction failed or rate limited. Falling back to local data...")
+                        if df_local is not None and not df_local.empty:
+                            all_dfs.append(df_local)
+                            local_extracted_files.append(filename)
+                else:
+                    # Direct Local extraction completed
+                    if df_local is not None and not df_local.empty:
+                        all_dfs.append(df_local)
+                        local_extracted_files.append(filename)
+                        if needs_ai:
+                            st.write("🔑 Complex format detected, but no API key is available. Using best-effort Local Mode.")
+                        else:
+                            st.write("⚡ Clean layout: Programmatic extraction complete (no AI tokens consumed).")
             
             if all_dfs:
                 combined_df = pd.concat(all_dfs, ignore_index=True)
-                # Merge cross-file duplicates — pass_prefix ensures correct passwords
                 final_df = _merge_duplicate_users(combined_df, pass_prefix=pass_prefix)
                 st.session_state['df_users'] = final_df
-                mode_label = "Local" if ai_failed else "AI"
+                
+                # Dynamic mode labeling
+                if ai_triggered_files and local_extracted_files:
+                    mode_label = "Hybrid (AI + Local)"
+                elif ai_triggered_files:
+                    mode_label = "AI"
+                else:
+                    mode_label = "Local"
+                
                 status.update(label=f"✅ {mode_label} Extraction Complete! {len(final_df)} unique users found.", state="complete")
-                if ai_failed:
-                    st.toast("💡 Used Local Mode (no AI). Column mapping may need manual review.", icon="ℹ️")
+                if local_extracted_files and not ai_triggered_files:
+                    st.toast("💡 100% processed offline in Local Mode (no AI tokens consumed).", icon="⚡")
             else:
                 status.update(label="⚠️ No users found in any of the files.", state="error")
 

@@ -1,6 +1,22 @@
-# user_masters/extraction/merge.py
 import re
+import difflib
 import pandas as pd
+
+def normalize_email(val: str) -> str:
+    if not val:
+        return ""
+    clean = str(val).strip().lower()
+    return "" if clean in ('nan', 'none', '-', '') else clean
+
+def normalize_mobile(val: str) -> str:
+    if not val:
+        return ""
+    # Extract digits only
+    digits = re.sub(r'\D', '', str(val))
+    # Match standard 10-digit number from the end
+    clean = digits[-10:] if len(digits) >= 10 else digits
+    return "" if clean in ('nan', 'none', '-', '') else clean
+
 
 def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.DataFrame:
     """
@@ -12,6 +28,8 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         return df
 
     df = df.copy()
+    if '_original_order' not in df.columns:
+        df['_original_order'] = range(len(df))
 
     # ── Drop phantom rows created from role section headers ──────────────────
     # A real user MUST have a name (firstName/lastName) or an employeeId.
@@ -55,12 +73,12 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         if eid and eid not in ('nan', 'none', '-', ''):
             return f"id_{eid}"
         
-        email = str(row.get('email', '')).strip().lower()
-        if email and email not in ('nan', 'none', '-', ''):
+        email = normalize_email(row.get('email', ''))
+        if email:
             return f"email_{email}"
             
-        mobile = str(row.get('mobile', '')).strip().lower()
-        if mobile and mobile not in ('nan', 'none', '-', ''):
+        mobile = normalize_mobile(row.get('mobile', ''))
+        if mobile:
             return f"mobile_{mobile}"
             
         uname = str(row.get('userName', '')).strip().lower()
@@ -80,14 +98,20 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     df['_group_key'] = df.apply(get_master_key, axis=1)
 
     def merge_group(group):
-        # Prefer the "cleanest" row: sort by firstName length ascending so a short,
-        # correctly-split name (e.g. "Arindam") wins over a merged one (e.g. "Arindam Riya").
-        # This does NOT affect single-occurrence users at all — sorting a 1-row group is a no-op.
-        if len(group) > 1 and 'firstName' in group.columns:
+        # Prefer the row with an Employee ID first, then by cleanest (shortest) firstName.
+        # This guarantees that the row with the ID acts as the primary name/username source!
+        if len(group) > 1:
             group = group.copy()
+            # 0 for rows with a valid ID (floats to top), 1 for blank IDs
+            group['_has_emp'] = group['employeeId'].apply(
+                lambda x: 0 if str(x).strip() and str(x).strip().lower() not in ('nan', 'none', '-') else 1
+            )
             group['_fn_len'] = group['firstName'].astype(str).str.replace('|', '', regex=False).str.strip().str.len()
-            group = group.sort_values('_fn_len').drop(columns=['_fn_len'])
+            group = group.sort_values(by=['_has_emp', '_fn_len']).drop(columns=['_has_emp', '_fn_len'])
         merged = group.iloc[0].copy()
+        # Keep the earliest original order!
+        if '_original_order' in group.columns:
+            merged['_original_order'] = group['_original_order'].min()
         # Merge all role strings across duplicates
         if 'roles' in group.columns:
             all_roles = []
@@ -157,26 +181,125 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     # ── DOUBLE MERGE PASS ────────────────────────────────────────────────────
     # Now that usernames are clean (no more 'priyodarshinimanisha'), 
     # we run the merger AGAIN. This ensures that a previously 'merged' name 
+    # ── DOUBLE MERGE PASS ────────────────────────────────────────────────────
+    # Now that usernames are clean (no more 'priyodarshinimanisha'), 
+    # we run the merger AGAIN. This ensures that a previously 'merged' name 
     # and a 'clean' name are now recognized as the same person.
     final_rows = []
+    
+    # Pre-clean suffix employee IDs (e.g. "ayesha-GB11318") in userName
+    def clean_uname(u):
+        if not u: return u
+        u_str = str(u).strip()
+        match = re.search(r'^(.*?)\s*-\s*([a-zA-Z]+[0-9]+[a-zA-Z0-9\-]*)$', u_str)
+        if match:
+            return match.group(1).strip().lower()
+        return u_str.lower()
+        
+    merged_df['userName'] = merged_df['userName'].apply(clean_uname)
     merged_df['_final_group_key'] = merged_df['userName']
+    
     for _, group in merged_df.groupby('_final_group_key', sort=False):
         if len(group) == 1:
             final_rows.append(group.iloc[0])
         else:
-            # Re-run the role merge logic
-            m = group.iloc[0].copy()
-            all_roles = []
-            for r in group['roles'].dropna():
-                for part in str(r).split('|'):
-                    part = part.strip()
-                    if part and part.lower() not in ('nan', '-', '') and part not in all_roles:
-                        all_roles.append(part)
-            m['roles'] = '|'.join(all_roles)
-            final_rows.append(m)
+            final_rows.append(merge_group(group))
     
     merged_df = pd.DataFrame(final_rows).reset_index(drop=True)
     merged_df = merged_df.drop(columns=['_final_group_key'], errors='ignore')
+    
+    # ── FUZZY NAME SIMILARITY DEDUPLICATION PASS ─────────────────────────────
+    # Compare remaining rows fuzzy-wise. If two rows have similar names (ratio > 0.88)
+    # and belong to the same department or unit, they are highly likely the same user.
+    fuzzy_merged_rows = []
+    skipped_indices = set()
+    
+    for i in range(len(merged_df)):
+        if i in skipped_indices:
+            continue
+        row_i = merged_df.iloc[i].copy()
+        
+        first_i = str(row_i.get('firstName', '')).strip().lower()
+        last_i = str(row_i.get('lastName', '')).strip().lower()
+        dept_i = str(row_i.get('departments', '')).strip().lower()
+        unit_i = str(row_i.get('units', '')).strip().lower()
+        
+        name_i = f"{first_i} {last_i}".strip()
+        if not name_i:
+            fuzzy_merged_rows.append(row_i)
+            continue
+            
+        for j in range(i + 1, len(merged_df)):
+            if j in skipped_indices:
+                continue
+            row_j = merged_df.iloc[j]
+            
+            first_j = str(row_j.get('firstName', '')).strip().lower()
+            last_j = str(row_j.get('lastName', '')).strip().lower()
+            dept_j = str(row_j.get('departments', '')).strip().lower()
+            unit_j = str(row_j.get('units', '')).strip().lower()
+            
+            name_j = f"{first_j} {last_j}".strip()
+            if not name_j:
+                continue
+                
+            # Compute string similarity ratio
+            sim = difflib.SequenceMatcher(None, name_i, name_j).ratio()
+
+            # Same department/unit AND similarity > 0.88 implies same person (e.g. typos like "Aysha" vs "Ayesha")
+            same_dept = dept_i and dept_j and dept_i == dept_j
+            same_unit = unit_i and unit_j and unit_i == unit_j
+            
+            # --- SAFETY GUARDS ---
+            # If they have DIFFERENT non-empty employee IDs, emails, or mobile numbers, they are DIFFERENT people!
+            emp_i = str(row_i.get('employeeId', '')).strip().lower()
+            emp_j = str(row_j.get('employeeId', '')).strip().lower()
+            has_emp = emp_i and emp_j and emp_i not in ('nan', 'none', '-') and emp_j not in ('nan', 'none', '-')
+            diff_emp = has_emp and emp_i != emp_j
+            
+            email_i = normalize_email(row_i.get('email', ''))
+            email_j = normalize_email(row_j.get('email', ''))
+            has_email = email_i and email_j
+            diff_email = has_email and email_i != email_j
+            
+            mob_i = normalize_mobile(row_i.get('mobile', ''))
+            mob_j = normalize_mobile(row_j.get('mobile', ''))
+            has_mob = mob_i and mob_j
+            diff_mob = has_mob and mob_i != mob_j
+            
+            if diff_emp or diff_email or diff_mob:
+                continue  # Safety guard: definitely different people! Do NOT merge.
+            
+            if sim > 0.88 and (same_dept or same_unit or (not dept_i and not dept_j)):
+                # Merge row_j into row_i
+                skipped_indices.add(j)
+                # Combine roles
+                roles_i = str(row_i.get('roles', '')).split('|')
+                roles_j = str(row_j.get('roles', '')).split('|')
+                all_roles = []
+                for r in (roles_i + roles_j):
+                    r_clean = r.strip()
+                    if r_clean and r_clean.lower() not in ('nan', '-', '') and r_clean not in all_roles:
+                        all_roles.append(r_clean)
+                row_i['roles'] = '|'.join(all_roles)
+                
+                # Backfill blank fields in row_i from row_j
+                for col in merged_df.columns:
+                    if col == 'roles': continue
+                    val_i = str(row_i.get(col, '')).strip().lower()
+                    val_j = str(row_j.get(col, '')).strip().lower()
+                    if val_i in ('', 'nan', 'none', '-') and val_j not in ('', 'nan', 'none', '-'):
+                        row_i[col] = row_j[col]
+        
+        fuzzy_merged_rows.append(row_i)
+    
+    merged_df = pd.DataFrame(fuzzy_merged_rows).reset_index(drop=True)
     # ─────────────────────────────────────────────────────────────────────────
+    
+    # Preserve 100% of the original Excel sheet row order
+    if '_original_order' in merged_df.columns:
+        merged_df = merged_df.sort_values('_original_order').reset_index(drop=True)
+        merged_df = merged_df.drop(columns=['_original_order'])
         
     return merged_df
+

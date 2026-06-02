@@ -9,6 +9,20 @@ import fitz
 import docx
 from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import sys
+import os
+
+# Prevent Name Shadowing: If run directly, the current file 'extraction.py' conflicts 
+# with the 'extraction' package. We clean the path and modules dynamically.
+if __name__ == "__main__" or sys.path[0].endswith("ai"):
+    parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    if parent_dir not in sys.path:
+        sys.path.insert(0, parent_dir)
+    if current_dir in sys.path:
+        sys.path.remove(current_dir)
+    if 'extraction' in sys.modules and sys.modules['extraction'].__file__ == __file__:
+        del sys.modules['extraction']
 
 from config.constants import USER_MASTER_COLS
 from models.schemas import UserMasterResult
@@ -99,10 +113,10 @@ Identify fields by MEANING, not by position or exact column header name:
     - employeeId: Extract the unique ID.
     - roles: This is CRITICAL. In this Excel format, the roles are often found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI') or are provided in the [ROLE SECTION:] tag at the start of the row. Combine all applicable roles found in Column A and [ROLE SECTION:] into this field, separated by "|".
     - departments / units / designation / email / mobile: Map correctly based on column headers.
-4. UNIT NAME: Look at the COLUMN HEADERS for a global "Unit Name" (e.g. Unit Name | Anandpur) and apply it to every user.
+4. UNIT NAME (STRICT RULE): Do NOT guess, assume, or infer the unit name from email addresses, department names, or any other fields. The `units` field must remain completely empty unless the Excel sheet has an explicit column for the unit name and the cells under it explicitly contain the unit name value.
 5. NO LOGIC: Do not try to generate usernames or complex passwords. Just extract the raw name parts. Python will handle the rest.
 6. NA LOGIC: If a value is "-", leave it blank.
-7. ROLE SECTION TAGS (CRITICAL): Lines tagged with [ROLE SECTION: ...] are SECTION HEADERS, NOT people. NEVER create a user record from a [ROLE SECTION:] tag. Only use them to determine the `roles` value for the real data rows that follow. If a row has no valid name or employee ID, SKIP it entirely.
+7. ROLE SECTION TAGS (CRITICAL): Lines tagged with [ROLE SECTION: ...] are SECTION HEADERS, NOT people. NEVER create a user record from a [ROLE SECTION:] tag. Only use them to determine the `roles` value for the real data rows that follow. If a row has no name, no email, and no employee ID, SKIP it entirely. Always extract rows that contain an email address or active cells, even if they have a non-standard name (like "MMC Rehab") or lack an employee ID.
 8. MIDDLE NAME RULE (CRITICAL): The `middleName` field is ONLY for a person's own middle name or initial (e.g. "K", "Kumar", "Rani"). It must NEVER contain another person's first name from a pipe-split. If firstName is "Arindam | Riya", you must create TWO separate users: User 1 has firstName="Arindam" and middleName="" (blank). User 2 has firstName="Riya" and middleName="" (blank). The text after the "|" is a second person, not a middle name.
 
 OUTPUT FORMAT (JSON):
@@ -131,12 +145,6 @@ def get_openai_client(api_key):
     if not api_key:
         return None
     api_key_str = str(api_key).strip()
-    if api_key_str.startswith("AIzaSy"):
-        # This is a Gemini API Key! Use Gemini's OpenAI-compatible endpoint.
-        return OpenAI(
-            api_key=api_key_str,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
     return OpenAI(api_key=api_key_str)
 
 def probe_api_key(key):
@@ -148,10 +156,7 @@ def probe_api_key(key):
     if not client:
         return False
     
-    if key_str.startswith("AIzaSy"):
-        model = "gemini-2.5-flash"
-    else:
-        model = "gpt-4o-mini"
+    model = "gpt-4o-mini"
         
     try:
         # A simple lightweight chat completion to test connectivity and quota
@@ -211,10 +216,9 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             log.warning("No healthy API keys available. Skipping AI extraction.")
             return None
             
-        any_openai_healthy = any(not k.startswith("AIzaSy") for k in healthy_keys)
-        # Gemini: use 1 worker per healthy key (round-robin). OpenAI: up to 5.
-        max_workers = 5 if any_openai_healthy else min(len(healthy_keys), 3)
-        log.info("Starting AI extraction. Healthy keys: %d, OpenAI healthy: %s, Workers: %d", len(healthy_keys), any_openai_healthy, max_workers)
+        # Scaled OpenAI workers limit
+        max_workers = min(len(healthy_keys) * 5, 5)
+        log.info("Starting AI extraction. Healthy keys: %d, Workers: %d", len(healthy_keys), max_workers)
 
         dynamic_prompt = USER_EXTRACTION_PROMPT.format(pass_prefix=pass_prefix)
         ext = filename.lower()
@@ -226,7 +230,39 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             else:
                 # Read ALL sheets — sheet_name=None returns {sheet_name: DataFrame}
                 all_sheets = pd.read_excel(io.BytesIO(file_bytes), header=None, sheet_name=None)
-                sheet_dfs = all_sheets
+                
+                # --- Filter sheets based on user intent (e.g. ignore sheet1) ---
+                if intent and isinstance(intent, str):
+                    intent_lower = intent.lower()
+                    filtered_sheets = {}
+                    for s_name, s_df in all_sheets.items():
+                        s_clean = s_name.lower().replace(' ', '')
+                        should_ignore = False
+                        
+                        import re
+                        ignore_matches = re.findall(r'(?:ignore|skip)\s*sheet\s*([0-9]+)', intent_lower)
+                        for num in ignore_matches:
+                            if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                                should_ignore = True
+                                break
+                                
+                        if should_ignore:
+                            continue
+                            
+                        only_matches = re.findall(r'only\s*sheet\s*([0-9]+)', intent_lower)
+                        if only_matches:
+                            matches_any_only = False
+                            for num in only_matches:
+                                if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                                    matches_any_only = True
+                                    break
+                            if not matches_any_only:
+                                continue
+                                
+                        filtered_sheets[s_name] = s_df
+                    sheet_dfs = filtered_sheets
+                else:
+                    sheet_dfs = all_sheets
                 st.toast(f"📋 Found {len(sheet_dfs)} sheet(s): {', '.join(sheet_dfs.keys())}")
             
             # We collect all chunks across all sheets, each with its own correct header context
@@ -352,8 +388,16 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 headers = unique_headers
 
                 role_cols = {}
-                role_keywords = ['role', 'audit', 'incharge', 'admin', 'user', 'manager', 
-                                'operator', 'reporter', 'viewer', 'approver', 'officer', 'staff', 'analyst', 'advisor', 'preventionist']
+                role_keywords = [
+                    'audit user', 'audit incharge', 'audit admin', 'audit configuration admin', 
+                    'audit dashboard viewer', 'non-conformance reporter', 'non-conformance admin', 
+                    'non-conformance champion', 'ncrs dashboard viewer', 'incident reporter', 
+                    'incident analyst', 'incident admin', 'incident dashboard viewer', 'qi viewer', 
+                    'qi owner', 'qi admin', 'qi dashboard viewer', 'risk reporter', 'risk owner', 
+                    'risk admin', 'risk auditor', 'proms user', 'proms admin', 'proms notification user', 
+                    'accreditation audit user', 'accreditation audit incharge', 'accreditation audit admin',
+                    'role'
+                ]
                 for col_idx, header in enumerate(headers):
                     header_lower = header.lower()
                     is_role_header = any(kw in header_lower for kw in role_keywords)
@@ -402,6 +446,20 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                         'raw_values': raw_vals
                     })
                 
+                # --- DYNAMIC FORMAT CLASSIFICATION FOR COLUMN A ---
+                # Calculate the density of non-empty values in Column A
+                col_a_values = data_rows_df.iloc[:, 0].dropna().astype(str).str.strip() if len(data_rows_df) > 0 else pd.Series()
+                col_a_non_empty = col_a_values[~col_a_values.str.lower().isin(['nan', 'none', '', '-'])]
+                non_empty_ratio = len(col_a_non_empty) / len(data_rows_df) if len(data_rows_df) > 0 else 0
+
+                # Check if Column A's header is a typical user attribute
+                col_a_header = str(headers[0]).lower().strip() if len(headers) > 0 else ""
+                is_col_a_user_attr = any(kw in col_a_header for kw in ['name', 'username', 'employee', 'emp', 'id', 'email', 'mail', 'phone', 'mobile'])
+
+                # Determine if Column A represents a Floating Role Section Header (matrix format)
+                is_floating_role_section = (non_empty_ratio < 0.45) and (not is_col_a_user_attr)
+                log.info("Sheet '%s' classification: non_empty_ratio=%.2f, is_col_a_user_attr=%s -> is_floating_role_section=%s", sheet_name, non_empty_ratio, is_col_a_user_attr, is_floating_role_section)
+
                 sheet_lines = []
                 last_col_a_value = ""
                 for _, row in data_rows_df.iterrows():
@@ -411,13 +469,13 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     if col_a_val.lower() not in ('nan', 'none', '', '-'):
                         last_col_a_value = col_a_val
                     tag = f"[SHEET: {sheet_name}]"
-                    if last_col_a_value:
+                    if is_floating_role_section and last_col_a_value:
                         tag += f" [ROLE SECTION: {last_col_a_value}]"
                     sheet_lines.append(f"{tag} {line}")
                 
                 # Create chunks for this specific sheet
-                # Small chunks (10 rows) = higher precision, fewer skipped users
-                chunk_size = 40
+                # Small chunks (20 rows) = higher precision, fewer skipped users, no API timeouts
+                chunk_size = 20
                 for i in range(0, len(sheet_lines), chunk_size):
                     chunk = sheet_lines[i:i + chunk_size]
                     all_chunks_to_process.append({
@@ -446,10 +504,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     if not current_client:
                         continue
                     
-                    if current_key.startswith("AIzaSy"):
-                        models_to_try = ["gemini-2.5-flash"]
-                    else:
-                        models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
                         
                     for model in models_to_try:
                         try:
@@ -464,7 +519,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 temperature=0.0
                             )
                             result = [u.__dict__ for u in completion.choices[0].message.parsed.users]
-                            if not result and (model == "gpt-4o-mini" or model == "gemini-2.5-flash"):
+                            if not result and model == "gpt-4o-mini":
                                 time.sleep(1)
                                 completion2 = current_client.chat.completions.parse(
                                     model=model,
@@ -515,7 +570,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             if has_tick_role_columns and global_excel_rows_data:
                 for user in all_users:
                     matched_roles = find_matching_excel_roles(user, global_excel_rows_data)
-                    user['roles'] = matched_roles
+                    if matched_roles:
+                        user['roles'] = matched_roles
             
             raw_df = pd.DataFrame(all_users)
             result_df = _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
@@ -572,10 +628,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 if not current_client:
                     continue
                 
-                if current_key.startswith("AIzaSy"):
-                    models_to_try = ["gemini-2.5-flash"]
-                else:
-                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                models_to_try = ["gpt-4o-mini", "gpt-4o"]
                     
                 for model in models_to_try:
                     try:
@@ -632,15 +685,8 @@ def apply_ai_smart_context(df, command, api_key):
     Includes: 60s timeout, exponential-backoff retry, column allowlist guard.
     """
     api_key_str = str(api_key).strip()
-    if api_key_str.startswith("AIzaSy"):
-        client = OpenAI(
-            api_key=api_key_str,
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
-        )
-        model = "gemini-2.5-flash"
-    else:
-        client = OpenAI(api_key=api_key_str)
-        model = "gpt-4o-mini"
+    client = OpenAI(api_key=api_key_str)
+    model = "gpt-4o-mini"
 
     # Context size guard: truncate rows if JSON would be too large
     context_df = df
