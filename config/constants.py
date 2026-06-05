@@ -1,8 +1,8 @@
 USER_MASTER_COLS = [
     "userName", "password", "departments", "roles", "units", "locations", "email", 
-    "mobile", "employeeId", "firstName", "middleName", "lastName", "designation", 
+    "phone", "employeeId", "firstName", "middleName", "lastName", "designation", 
     "timezone", "shiftDuration", "thirdPartyUsername", "dateOfJoining", 
-    "lastWorkingDate", "reportingTo", "isEnabled"
+    "lastWorkingDate", "reportingTo", "isEnabled", "passwordPolicy"
 ]
 
 SEMANTIC_MAPPINGS = {
@@ -11,6 +11,6 @@ SEMANTIC_MAPPINGS = {
     'firstName': ['first name', 'fname', 'given name', 'name 1'],
     'lastName': ['last name', 'lname', 'surname', 'family name', 'name 2'],
     'email': ['e-mail', 'mail id', 'official email', 'email address'],
-    'mobile': ['contact', 'phone', 'mobile no', 'cell', 'telephone'],
+    'phone': ['contact', 'mobile', 'mobile no', 'cell', 'telephone', 'phone number', 'personal phone'],
     'designation': ['position', 'rank', 'job title', 'role name', 'category']
 }

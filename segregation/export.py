@@ -2,122 +2,117 @@ import pandas as pd
 import io
 import datetime
 
-def generate_segregation_workbook(client_df: pd.DataFrame, duplicates_df: pd.DataFrame, file_names: dict) -> bytes:
+def format_segregation_results(client_df: pd.DataFrame) -> dict:
     """
-    Generates a multi-sheet Excel workbook from the segregation results.
+    Separates the client data into Existing and New users and formats them to the target template.
+    Returns a dict with 'Existing Users' and 'New Users' dataframes.
     """
-    buf = io.BytesIO()
-    
-    # Extract data subsets
     existing_users = client_df[client_df['User Type'] == 'Existing User'].copy() if not client_df.empty else pd.DataFrame()
     new_users = client_df[client_df['User Type'] == 'New User'].copy() if not client_df.empty else pd.DataFrame()
     
-    # Validation errors (Mock for now, could be expanded based on mandatory fields)
-    validation_errors = []
-    if not new_users.empty:
-        for idx, row in new_users.iterrows():
-            missing = []
-            for col in ['userName', 'email', 'roles']: # Example mandatory fields
-                if col in row and pd.isna(row[col]) or str(row.get(col, '')).strip() == '':
-                    missing.append(col)
-            if missing:
-                validation_errors.append({
-                    'Row #': row.get('#', idx + 1),
-                    'User Identifier': row.get('userName', row.get('email', '')),
-                    'Error': f"Missing mandatory fields: {', '.join(missing)}"
-                })
-    df_errors = pd.DataFrame(validation_errors) if validation_errors else pd.DataFrame(columns=['Row #', 'User Identifier', 'Error'])
-    
-    # Audit Log
-    audit_data = []
-    if not client_df.empty:
-        for idx, row in client_df.iterrows():
-            audit_data.append({
-                'Record Number': row.get('#', idx + 1),
-                'User Identifier': row.get('userName', row.get('email', row.get('employeeId', ''))),
-                'Action Taken': 'Processed',
-                'Match Type': row.get('Match Status', ''),
-                'Matched By': row.get('Matched By', ''),
-                'Timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                'Processing Status': 'Success'
-            })
-    df_audit = pd.DataFrame(audit_data) if audit_data else pd.DataFrame(columns=['Record Number', 'User Identifier', 'Action Taken', 'Match Type', 'Matched By', 'Timestamp', 'Processing Status'])
-    
-    # Summary Sheet Data
-    total_uploaded = len(client_df) + len(duplicates_df)
-    counts = client_df['Matched By'].value_counts() if not client_df.empty and 'Matched By' in client_df.columns else {}
-    
-    summary_data = [
-        {'Metric': 'Processing Date & Time', 'Value': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-        {'Metric': 'Client File', 'Value': file_names.get('client', 'Unknown')},
-        {'Metric': 'Medblaze Master File', 'Value': file_names.get('master', 'Unknown')},
-        {'Metric': 'Total Records Uploaded', 'Value': total_uploaded},
-        {'Metric': 'Existing Users Count', 'Value': len(existing_users)},
-        {'Metric': 'New Users Count', 'Value': len(new_users)},
-        {'Metric': 'Duplicate Records Count', 'Value': len(duplicates_df)},
-        {'Metric': 'Validation Error Count', 'Value': len(df_errors)},
+    TARGET_COLS = [
+        "userName", "password", "departments", "roles", "units", "locations", 
+        "email", "phone", "employeeId", "firstName", "middleName", "lastName", 
+        "designation", "timezone", "shiftDuration", "thirdPartyUsername", 
+        "dateOfJoining", "lastWorkingDate", "reportingTo", "isEnabled", "passwordPolicy"
     ]
     
-    for k, v in counts.items():
-        if k: # Ignore empty matched_by (for New Users)
-            summary_data.append({'Metric': f'Matched By {k} Count', 'Value': v})
+    def format_to_template(df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return df
             
-    df_summary = pd.DataFrame(summary_data)
-    
-    # Clean up master_ columns from Existing/New users for display
-    # But for Existing users, we want to highlight changes. We will add Change Summary columns.
-    
-    if not existing_users.empty:
-        change_cols = []
-        for col in existing_users.columns:
-            if not col.startswith('master_') and col not in ['User Type', 'Match Status', 'Matched By', 'Matched Medblaze Record', 'Remarks', '#']:
-                master_col = f"master_{col}"
-                if master_col in existing_users.columns:
-                    # Compare and add Current/New columns
-                    # We will create "Current {col}" and "New {col}" only if differences exist in the dataset
-                    diff_mask = existing_users[col].astype(str).str.strip() != existing_users[master_col].astype(str).str.strip()
-                    if diff_mask.any():
-                        existing_users[f"Current {col}"] = existing_users[master_col]
-                        existing_users[f"New {col}"] = existing_users[col]
-                        change_cols.extend([f"Current {col}", f"New {col}"])
-                        
-        # Drop all master_ cols
-        master_drop = [c for c in existing_users.columns if c.startswith('master_')]
-        existing_users.drop(columns=master_drop, inplace=True)
+        # Fallbacks to capture incorrectly named columns from the client file
+        fallbacks = {
+            'email': ['Mail ID', 'mail', 'Email Address'],
+            'phone': ['Personal Phone', 'mobile', 'Mobile Number', 'Phone Number'],
+            'employeeId': ['Employee No', 'emp id']
+        }
         
-    if not new_users.empty:
-        master_drop = [c for c in new_users.columns if str(c).startswith('master_')]
-        new_users.drop(columns=master_drop, inplace=True, errors='ignore')
+        for col in TARGET_COLS:
+            if col not in df.columns:
+                found = False
+                if col in fallbacks:
+                    for fb in fallbacks[col]:
+                        if fb in df.columns:
+                            df[col] = df[fb]
+                            found = True
+                            break
+                if not found:
+                    df[col] = ''
+                    
+        # Keep exactly the target columns
+        final_cols = TARGET_COLS.copy()
+        
+        # Clean userName: lowercase, no spaces, no special characters
+        if 'userName' in df.columns:
+            import re
+            df['userName'] = df['userName'].astype(str).apply(
+                lambda x: re.sub(r'[^a-z0-9]', '', x.lower()) if pd.notna(x) and str(x).strip() not in ('', 'nan') else ''
+            )
+        
+        # Add internal duplicate flag for AgGrid highlighting
+        if 'Is Duplicate' in df.columns:
+            df['_is_duplicate_user'] = df['Is Duplicate'].fillna(False).astype(bool)
+            final_cols.append('_is_duplicate_user')
+            
+        return df[final_cols]
+        
+    return {
+        'Existing Users': format_to_template(existing_users),
+        'New Users': format_to_template(new_users)
+    }
+
+def generate_segregation_workbook(dfs: dict) -> bytes:
+    """
+    Generates a multi-sheet Excel workbook from the dictionary of formatted dataframes.
+    """
+    buf = io.BytesIO()
+    
+    existing_users = dfs.get('Existing Users', pd.DataFrame()).copy()
+    new_users = dfs.get('New Users', pd.DataFrame()).copy()
+        
+    def get_dup_indices(df):
+        if '_is_duplicate_user' in df.columns:
+            return [i + 1 for i, val in enumerate(df['_is_duplicate_user']) if val]
+        return []
+        
+    existing_dup_idx = get_dup_indices(existing_users)
+    new_dup_idx = get_dup_indices(new_users)
+    
+    # Drop the internal grid marker before exporting to Excel
+    for df in [existing_users, new_users]:
+        if '_is_duplicate_user' in df.columns:
+            df.drop(columns=['_is_duplicate_user'], inplace=True)
         
     # Write to Excel
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        df_summary.to_excel(writer, sheet_name='Summary', index=False)
-        existing_users.to_excel(writer, sheet_name='Existing Users', index=False)
-        new_users.to_excel(writer, sheet_name='New Users', index=False)
-        if not duplicates_df.empty:
-            duplicates_df.to_excel(writer, sheet_name='Duplicate Records', index=False)
+        if not existing_users.empty:
+            existing_users.to_excel(writer, sheet_name='Existing Users', index=False)
         else:
-            pd.DataFrame([{'Message': 'No duplicates found'}]).to_excel(writer, sheet_name='Duplicate Records', index=False)
+            pd.DataFrame([{'Message': 'No existing users found'}]).to_excel(writer, sheet_name='Existing Users', index=False)
             
-        if not df_errors.empty:
-            df_errors.to_excel(writer, sheet_name='Validation Errors', index=False)
+        if not new_users.empty:
+            new_users.to_excel(writer, sheet_name='New Users', index=False)
         else:
-            pd.DataFrame([{'Message': 'No validation errors'}]).to_excel(writer, sheet_name='Validation Errors', index=False)
+            pd.DataFrame([{'Message': 'No new users found'}]).to_excel(writer, sheet_name='New Users', index=False)
             
-        df_audit.to_excel(writer, sheet_name='Audit Log', index=False)
-        
-        # Formatting (Autofit columns)
+        # Formatting
         workbook = writer.book
-        for sheet_name in writer.sheets:
+        duplicate_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        
+        for sheet_name, df_sheet, dup_indices in [('Existing Users', existing_users, existing_dup_idx), ('New Users', new_users, new_dup_idx)]:
+            if df_sheet.empty or 'Message' in df_sheet.columns:
+                continue
+                
             worksheet = writer.sheets[sheet_name]
             worksheet.autofit()
             
-            # Optional: Add conditional formatting to highlight "New " columns in Existing Users
-            if sheet_name == 'Existing Users':
-                highlight_format = workbook.add_format({'bg_color': '#FFEB9C', 'font_color': '#9C0006'})
-                for col_num, col_name in enumerate(existing_users.columns):
-                    if str(col_name).startswith('New '):
-                        worksheet.conditional_format(1, col_num, len(existing_users), col_num,
-                                                     {'type': 'no_blanks', 'format': highlight_format})
+            # Apply formatting directly to duplicate rows without needing a helper column
+            if dup_indices:
+                for row_idx in dup_indices:
+                    worksheet.conditional_format(row_idx, 0, row_idx, len(df_sheet.columns) - 1,
+                                                 {'type': 'no_blanks', 'format': duplicate_format})
+                    worksheet.conditional_format(row_idx, 0, row_idx, len(df_sheet.columns) - 1,
+                                                 {'type': 'blanks', 'format': duplicate_format})
                                                      
     return buf.getvalue()

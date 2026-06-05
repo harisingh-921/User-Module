@@ -394,9 +394,9 @@ with st.sidebar:
     </div>
         """, unsafe_allow_html=True)
 
-    navigation = st.radio("Navigation Mode", ["Data Extraction", "User Segregation & Comparison"])
+    navigation = st.radio("Navigation Mode", ["New User", "Update User", "Both"])
     
-    if navigation == "Data Extraction":
+    if navigation == "New User":
         st.markdown("""
         <hr style='border: none; border-top: 1px solid rgba(15,23,42,0.1); margin: 8px 0 16px 0;'/>
         <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
@@ -457,10 +457,32 @@ with st.sidebar:
         srcs = None
 
 # --- MAIN LOGIC ---
-if navigation == "User Segregation & Comparison":
+if navigation == "Update User":
+    st.info("Update User functionality is coming soon!")
+    st.stop()
+    
+if navigation == "Both":
     from segregation import render_segregation_ui
     render_segregation_ui()
-    st.stop()
+    
+    if 'segregation_dfs' in st.session_state and 'segregation_view_choice' in st.session_state:
+        current_choice = st.session_state['segregation_view_choice']
+        
+        # If we were previously editing a DIFFERENT choice, save df_users back!
+        if 'prev_segregation_view_choice' in st.session_state and 'df_users' in st.session_state:
+            prev_choice = st.session_state['prev_segregation_view_choice']
+            if prev_choice != current_choice:
+                # User just toggled! Save the old state back to segregation_dfs
+                st.session_state['segregation_dfs'][prev_choice] = st.session_state['df_users'].copy()
+                
+        # Now, load the newly selected choice into df_users if it changed
+        if st.session_state.get('prev_segregation_view_choice') != current_choice:
+            st.session_state['df_users'] = st.session_state['segregation_dfs'][current_choice].copy()
+            st.session_state['prev_segregation_view_choice'] = current_choice
+            # Update hash to force grid redraw
+            _update_users_hash()
+    else:
+        st.stop()
 
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
@@ -505,18 +527,7 @@ if srcs:
                                 needs_ai = True
                                 reason = "Delimited multi-user cells detected"
                                 break
-                    # 2. Check if there are Yes/No columns representing a complex role matrix
-                    if not needs_ai:
-                        for col in df_local.columns:
-                            col_lower = str(col).lower()
-                            if col_lower in ['isenabled', 'enabled', 'active', '#', 'password']:
-                                continue
-                            # If a column contains only Yes/No/nan/empty, it represents a role matrix column!
-                            unique_vals = set(df_local[col].dropna().astype(str).str.strip().str.lower().unique())
-                            if unique_vals and unique_vals.issubset({'yes', 'no', 'nan', '', '-'}):
-                                needs_ai = True
-                                reason = f"Complex Yes/No role columns detected ('{col}')"
-                                break
+                    # 2. Removed Yes/No column check as per user request
                 
                 # --- Step 3: Run AI extraction only when needed and API key is present ---
                 if needs_ai and api_key:
@@ -867,46 +878,65 @@ if 'df_users' in st.session_state:
         st.markdown("---")
 
         # ── Cached Excel Export ───────────────────────────────────────────────────────────
-        # Regenerate the .xlsx only when the data actually changes (keyed by hash).
-        # On no-op reruns (sidebar interactions, column toggles, etc.) this block
-        # returns the cached bytes instantly without touching xlsxwriter.
-        _export_hash_key = str(st.session_state._df_users_hash)  # None → str for dict key
-        if _export_hash_key not in st.session_state._excel_cache:
-            _export_df = grid_response['data'].copy()
-            # Strip display-only and internal columns from the export
-            for _drop_col in ['#', '::auto_unique_id::']:
-                if _drop_col in _export_df.columns:
-                    _export_df = _export_df.drop(columns=[_drop_col])
-            
-            _buf = io.BytesIO()
-            # Set global pandas setting to remove header bold/borders (Matches audit_config style)
-            import pandas.io.formats.excel
-            pandas.io.formats.excel.ExcelFormatter.header_style = None
-
-            with pd.ExcelWriter(_buf, engine='xlsxwriter') as _writer:
-                _export_df.to_excel(_writer, index=False, sheet_name='Users')
+        if navigation == "Both":
+            # Sync the current grid data to the respective segregation dataset before generating
+            if 'segregation_view_choice' in st.session_state and 'segregation_dfs' in st.session_state:
+                current_choice = st.session_state['segregation_view_choice']
+                st.session_state['segregation_dfs'][current_choice] = grid_response['data'].copy()
                 
-                # Auto-fit column widths (kept from previous step for usability)
-                _worksheet = _writer.sheets['Users']
-                for _i, _col in enumerate(_export_df.columns):
-                    _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]
-                    _max_len = max(
-                        max(_col_str_lengths) if _col_str_lengths else 0,
-                        len(str(_col))
-                    ) + 2
-                    _worksheet.set_column(_i, _i, min(_max_len, 50))
-
-            # Keep only the latest entry
-            st.session_state._excel_cache = {_export_hash_key: _buf.getvalue()}
-
-        _excel_bytes = st.session_state._excel_cache[_export_hash_key]
-        # ─────────────────────────────────────────────────────────────────────────────
-        st.download_button(
-            label="📥 DOWNLOAD USER MASTER (.xlsx)",
-            data=_excel_bytes,
-            file_name="user_master_export.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            width="stretch"
-        )
+            _export_hash_key = str(st.session_state._df_users_hash) + "_both"
+            if _export_hash_key not in st.session_state._excel_cache:
+                from segregation.export import generate_segregation_workbook
+                _buf_bytes = generate_segregation_workbook(st.session_state['segregation_dfs'])
+                st.session_state._excel_cache = {_export_hash_key: _buf_bytes}
+                
+            _excel_bytes = st.session_state._excel_cache[_export_hash_key]
+            
+            st.download_button(
+                label="📥 DOWNLOAD SEGREGATION REPORT (.xlsx)",
+                data=_excel_bytes,
+                file_name="User_Segregation_Report.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch"
+            )
+        else:
+            _export_hash_key = str(st.session_state._df_users_hash)  # None → str for dict key
+            if _export_hash_key not in st.session_state._excel_cache:
+                _export_df = grid_response['data'].copy()
+                # Strip display-only and internal columns from the export
+                for _drop_col in ['#', '::auto_unique_id::', '_is_duplicate_user']:
+                    if _drop_col in _export_df.columns:
+                        _export_df = _export_df.drop(columns=[_drop_col])
+                
+                _buf = io.BytesIO()
+                # Set global pandas setting to remove header bold/borders (Matches audit_config style)
+                import pandas.io.formats.excel
+                pandas.io.formats.excel.ExcelFormatter.header_style = None
+    
+                with pd.ExcelWriter(_buf, engine='xlsxwriter') as _writer:
+                    _export_df.to_excel(_writer, index=False, sheet_name='Users')
+                    
+                    # Auto-fit column widths (kept from previous step for usability)
+                    _worksheet = _writer.sheets['Users']
+                    for _i, _col in enumerate(_export_df.columns):
+                        _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]
+                        _max_len = max(
+                            max(_col_str_lengths) if _col_str_lengths else 0,
+                            len(str(_col))
+                        ) + 2
+                        _worksheet.set_column(_i, _i, min(_max_len, 50))
+    
+                # Keep only the latest entry
+                st.session_state._excel_cache = {_export_hash_key: _buf.getvalue()}
+    
+            _excel_bytes = st.session_state._excel_cache[_export_hash_key]
+            # ─────────────────────────────────────────────────────────────────────────────
+            st.download_button(
+                label="📥 DOWNLOAD USER MASTER (.xlsx)",
+                data=_excel_bytes,
+                file_name="user_master_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width="stretch"
+            )
 else:
     st.info("👋 Upload an Excel or CSV file in the sidebar to begin automated extraction.")

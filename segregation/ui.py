@@ -6,9 +6,34 @@ import io
 
 def read_file(uploaded_file):
     if uploaded_file.name.endswith('.csv'):
-        return pd.read_csv(uploaded_file)
+        df = pd.read_csv(uploaded_file)
     else:
-        return pd.read_excel(uploaded_file)
+        df = pd.read_excel(uploaded_file)
+    
+    # Drop rows that are completely empty (all NaNs) to prevent them from being flagged as duplicates
+    return df.dropna(how='all')
+
+def guess_col_index(cols, opt_name):
+    """Tries to guess the correct column index for a given standard field."""
+    aliases = {
+        "Employee ID": ["employeeid", "employee id", "emp id", "employee no", "employeeno", "staff id"],
+        "Mail": ["email", "mail", "email address", "e-mail"],
+        "Mobile Number": ["mobile", "phone", "mobile number", "contact", "phone number"],
+        "Username": ["username", "user name", "name", "full name"]
+    }
+    opt_aliases = aliases.get(opt_name, [opt_name.lower()])
+    
+    # Exact match in aliases
+    for i, col in enumerate(cols):
+        if str(col).lower().strip() in opt_aliases:
+            return i + 1  # +1 because of "-- Select --" at index 0
+            
+    # Partial match
+    for i, col in enumerate(cols):
+        for alias in opt_aliases:
+            if alias in str(col).lower().strip():
+                return i + 1
+    return 0
 
 def render_segregation_ui():
     st.markdown("## 👥 User Segregation & Comparison")
@@ -29,69 +54,104 @@ def render_segregation_ui():
             client_df = read_file(client_file)
             master_df = read_file(master_file)
             
-            # Identify common columns
-            common_cols = list(set(client_df.columns).intersection(set(master_df.columns)))
-            
-            if not common_cols:
-                st.error("No common columns found between the two files. Cannot perform matching.")
-                return
-                
             st.markdown("---")
             st.markdown("### Step 3: Matching Configuration")
-            st.info(f"Found {len(common_cols)} common columns. Please select the fields to use for matching and their priority.")
             
-            # Let user select priority fields using a multiselect.
-            # Streamlit preserves the order of selection in the returned list.
             st.markdown("**Matching Mode:** Priority-Based Matching")
             st.markdown("Select columns in the order of their priority (e.g., Select Employee ID first, then Username).")
             
-            priority_cols = st.multiselect(
+            standard_options = ["Employee ID", "Mail", "Mobile Number", "Username", "Other"]
+            
+            selected_options = st.multiselect(
                 "Select Matching Fields (Priority Order)",
-                options=common_cols,
-                default=[c for c in ['employeeId', 'userName', 'email', 'mobile'] if c in common_cols]
+                options=standard_options,
+                default=["Employee ID", "Username"]
             )
             
-            if priority_cols:
-                st.write("**Priority Order:**")
-                for i, col in enumerate(priority_cols):
-                    st.write(f"{i+1}. `{col}`")
+            priority_mappings = []
+            
+            if selected_options:
+                st.write("**Map Selected Fields to File Columns:**")
+                
+                client_cols = list(client_df.columns)
+                master_cols = list(master_df.columns)
+                
+                all_mapped = True
+                
+                for opt in selected_options:
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        c_idx = guess_col_index(client_cols, opt)
+                        c_col = st.selectbox(f"Client Column for '{opt}'", ["-- Select --"] + client_cols, index=c_idx, key=f"client_{opt}")
+                    with col2:
+                        m_idx = guess_col_index(master_cols, opt)
+                        m_col = st.selectbox(f"Master Column for '{opt}'", ["-- Select --"] + master_cols, index=m_idx, key=f"master_{opt}")
                     
-                if st.button("🚀 Run Segregation & Comparison", type="primary"):
-                    with st.status("Processing files...", expanded=True) as status:
-                        st.write("Detecting duplicates in client file...")
-                        cleaned_client_df, duplicates_df = detect_duplicates(client_df, priority_cols)
+                    if c_col != "-- Select --" and m_col != "-- Select --":
+                        priority_mappings.append({
+                            'name': opt,
+                            'client_col': c_col,
+                            'master_col': m_col
+                        })
+                    else:
+                        all_mapped = False
                         
-                        st.write(f"Found {len(duplicates_df)} duplicates. Proceeding with {len(cleaned_client_df)} unique records.")
-                        
-                        st.write("Running priority-based dictionary matching...")
-                        results_df = compare_users(cleaned_client_df, master_df, priority_cols)
-                        
-                        st.write("Generating output workbook...")
-                        file_names = {
-                            'client': client_file.name,
-                            'master': master_file.name
-                        }
-                        excel_data = generate_segregation_workbook(results_df, duplicates_df, file_names)
-                        
-                        status.update(label="✅ Processing Complete!", state="complete")
-                        
-                    # Results Dashboard
+                if all_mapped and priority_mappings:
                     st.markdown("---")
-                    st.markdown("### 📊 Results Summary")
-                    
-                    m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("Total Uploaded", len(client_df))
-                    m2.metric("Existing Users", len(results_df[results_df['User Type'] == 'Existing User']))
-                    m3.metric("New Users", len(results_df[results_df['User Type'] == 'New User']))
-                    m4.metric("Duplicates", len(duplicates_df))
-                    
-                    st.download_button(
-                        label="📥 Download Segregation Report (.xlsx)",
-                        data=excel_data,
-                        file_name="User_Segregation_Report.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary"
-                    )
+                    st.write("**Priority Order Confirmed:**")
+                    for i, m in enumerate(priority_mappings):
+                        st.write(f"{i+1}. `{m['name']}` (Client: `{m['client_col']}` ↔ Master: `{m['master_col']}`)")
+                        
+                    if st.button("🚀 Run Segregation & Comparison", type="primary"):
+                        with st.status("Processing files...", expanded=True) as status:
+                            st.write("Detecting duplicates in client file...")
+                            flagged_df = detect_duplicates(client_df, priority_mappings)
+                            
+                            dup_count = flagged_df['Is Duplicate'].sum()
+                            st.write(f"Found {dup_count} duplicates. Proceeding with comparison...")
+                            
+                            st.write("Running priority-based dictionary matching...")
+                            results_df = compare_users(flagged_df, master_df, priority_mappings)
+                            
+                            st.write("Formatting results...")
+                            from .export import format_segregation_results
+                            formatted_dfs = format_segregation_results(results_df)
+                            
+                            # Store in session state for AgGrid editor
+                            st.session_state['segregation_dfs'] = formatted_dfs
+                            # Default choice
+                            st.session_state['segregation_view_choice'] = 'Existing Users'
+                            
+                            status.update(label="✅ Processing Complete!", state="complete")
+                            
+                    # If we have run segregation, show the results and toggle
+                    if 'segregation_dfs' in st.session_state:
+                        # Results Dashboard
+                        st.markdown("---")
+                        st.markdown("### 📊 Results Summary")
+                        
+                        m1, m2, m3, m4 = st.columns(4)
+                        m1.metric("Total Uploaded", len(client_df))
+                        m2.metric("Existing Users", len(st.session_state['segregation_dfs']['Existing Users']))
+                        m3.metric("New Users", len(st.session_state['segregation_dfs']['New Users']))
+                        # Calculate dup count from the saved dataframe
+                        dup_existing = st.session_state['segregation_dfs']['Existing Users']['_is_duplicate_user'].sum() if not st.session_state['segregation_dfs']['Existing Users'].empty else 0
+                        dup_new = st.session_state['segregation_dfs']['New Users']['_is_duplicate_user'].sum() if not st.session_state['segregation_dfs']['New Users'].empty else 0
+                        m4.metric("Duplicates Flagged", dup_existing + dup_new)
+                        
+                        st.markdown("### 📝 Interactive Editor")
+                        st.info("Select a dataset below to edit it in the grid. Your edits are saved locally as you type.")
+                        
+                        # Sync logic: Before we change the choice, save the current grid state back to the dict
+                        # This happens in app.py normally, but just to be safe, the toggle triggers a rerun.
+                        # Wait, the radio button itself triggers the rerun.
+                        # We will let app.py handle the synchronization logic so we don't drop edits.
+                        
+                        view_choice = st.radio("Select Dataset to Edit", ["Existing Users", "New Users"], horizontal=True)
+                        st.session_state['segregation_view_choice'] = view_choice
+                        
+                else:
+                    st.warning("Please map all selected matching fields to continue.")
                     
         except Exception as e:
             st.error(f"Error reading files or processing: {e}")
