@@ -223,18 +223,28 @@ _SNAPSHOT_ROW_CAP  = 500   # rows above this → warn + still snapshot (safety)
 
 def _compute_ai_diff(old_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
     """Return a human-readable summary DataFrame of AI-changed cells."""
-    rows = []
     skip = {'#', '_group_key'}
-    for i in range(min(len(old_df), len(new_df))):
-        old_row = old_df.iloc[i]
-        new_row = new_df.iloc[i]
-        for col in old_df.columns:
-            if col in skip: continue
-            ov = str(old_row.get(col, '')).strip()
-            nv = str(new_row.get(col, '')).strip()
-            if ov != nv:
-                rows.append({'Row #': old_row.get('#', i + 1), 'Column': col, 'Before': ov, 'After': nv})
-    return pd.DataFrame(rows) if rows else pd.DataFrame(columns=['Row #', 'Column', 'Before', 'After'])
+    cols = [c for c in old_df.columns if c in new_df.columns and c not in skip]
+    min_len = min(len(old_df), len(new_df))
+    if min_len == 0 or not cols:
+        return pd.DataFrame(columns=['Row #', 'Column', 'Before', 'After'])
+    
+    old_vals = old_df[cols].iloc[:min_len].astype(str).apply(lambda x: x.str.strip())
+    new_vals = new_df[cols].iloc[:min_len].astype(str).apply(lambda x: x.str.strip())
+    
+    changed = old_vals.compare(new_vals, result_names=('Before', 'After'))
+    if changed.empty:
+        return pd.DataFrame(columns=['Row #', 'Column', 'Before', 'After'])
+    
+    # Stack to convert to long format efficiently
+    changed = changed.stack(level=0).reset_index()
+    changed.rename(columns={'level_0': 'row_idx', 'level_1': 'Column'}, inplace=True)
+    
+    # Map row_idx to Row #
+    row_nums = old_df['#'].iloc[:min_len].values if '#' in old_df.columns else range(1, min_len + 1)
+    changed['Row #'] = changed['row_idx'].apply(lambda idx: row_nums[idx])
+    
+    return changed[['Row #', 'Column', 'Before', 'After']]
 
 def _df_hash(df: pd.DataFrame, cols: list) -> int:
     """Fast structural hash of selected columns using pandas' built-in vectorised
@@ -244,12 +254,12 @@ def _df_hash(df: pd.DataFrame, cols: list) -> int:
     if not safe_cols:
         return 0
     try:
-        return int(
+        return hash(tuple(
             pd.util.hash_pandas_object(
                 df[safe_cols].astype(str),   # str cast: handles mixed types safely
                 index=False
-            ).sum()
-        )
+            )
+        ))
     except Exception:
         return 0  # fallback: treat as changed so diff runs
 
@@ -288,8 +298,12 @@ def _df_diff(old_df: pd.DataFrame, new_df: pd.DataFrame) -> list:
     new_vals = new_df[cols].iloc[:min_len].astype(object).fillna("").reset_index(drop=True)
     changed = old_vals.compare(new_vals, result_names=('old', 'new'))
     diffs = []
+    if changed.empty:
+        return diffs
+        
+    changed_cols = changed.columns.get_level_values(0).unique()
     for row_idx, row in changed.iterrows():
-        for col in cols:
+        for col in changed_cols:
             try:
                 ov = row[(col, 'old')]
                 nv = row[(col, 'new')]
@@ -380,64 +394,74 @@ with st.sidebar:
     </div>
         """, unsafe_allow_html=True)
 
-    st.markdown("""
-    <hr style='border: none; border-top: 1px solid rgba(15,23,42,0.1); margin: 8px 0 16px 0;'/>
-    <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
-        <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
-                     padding:3px 8px; border-radius:20px;'>STEP 1</span>
-        <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Source Setup</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    srcs = st.file_uploader("Upload User List(s)", type=["xlsx", "xls", "csv", "pdf", "docx"], accept_multiple_files=True, key="user_file_uploader")
-    if srcs:
-        st.session_state["uploaded_files"] = srcs
-    elif "uploaded_files" in st.session_state:
-        srcs = st.session_state["uploaded_files"]
-        if srcs:
-            st.success(f"📂 **{len(srcs)} file(s)** active")
-
-    pass_prefix = st.text_input("Password Prefix", value="Med", help="Prefix for auto-generated passwords")
-
-    st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-    st.markdown("""
-    <div style='display:flex; align-items:center; gap:8px; padding: 4px 2px 10px 2px;'>
-        <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
-                     padding:3px 8px; border-radius:20px;'>STEP 2</span>
-        <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Smart Context</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-    user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
-
-    st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-    if st.button("🗑️ Full Reset", width="stretch"):
-        st.cache_data.clear()
-        for key in list(st.session_state.keys()): del st.session_state[key]
-        st.rerun()
-
-    with st.expander("❓ **How to use AI Assistant**", expanded=False):
+    navigation = st.radio("Navigation Mode", ["Data Extraction", "User Segregation & Comparison"])
+    
+    if navigation == "Data Extraction":
         st.markdown("""
-        ### 🤖 Assistant Commands (Post-Extraction)
-        
-        **1. Bulk Editing**
-        * *"Set isEnabled to Yes for all rows"*
-        * *"Update department to ICU for all nurses"*
-        * *"Set roles to Audit User|Incident Reporter for row 5"*
-        
-        **2. Smart Fixes**
-        * *"Fix all usernames to be lowercase with no spaces"*
-        * *"Fill missing passwords using Med@123"*
-        
-        ---
-        ### 🎯 Smart Context (Pre-Extraction)
-        Use the sidebar input to set rules **before** processing:
-        * *"Only extract clinical staff"*
-        * *"Ignore the second sheet"*
-        * *"Skip rows where designation is Intern"*
-        """)
+        <hr style='border: none; border-top: 1px solid rgba(15,23,42,0.1); margin: 8px 0 16px 0;'/>
+        <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
+            <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
+                         padding:3px 8px; border-radius:20px;'>STEP 1</span>
+            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Source Setup</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+        srcs = st.file_uploader("Upload User List(s)", type=["xlsx", "xls", "csv", "pdf", "docx"], accept_multiple_files=True, key="user_file_uploader")
+        if srcs:
+            st.session_state["uploaded_files"] = srcs
+        elif "uploaded_files" in st.session_state:
+            srcs = st.session_state["uploaded_files"]
+            if srcs:
+                st.success(f"📂 **{len(srcs)} file(s)** active")
+    
+        pass_prefix = st.text_input("Password Prefix", value="Med", help="Prefix for auto-generated passwords")
+    
+        st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
+        st.markdown("""
+        <div style='display:flex; align-items:center; gap:8px; padding: 4px 2px 10px 2px;'>
+            <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
+                         padding:3px 8px; border-radius:20px;'>STEP 2</span>
+            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Smart Context</span>
+        </div>
+        """, unsafe_allow_html=True)
+    
+        user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
+    
+        st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
+        if st.button("🗑️ Full Reset", width="stretch"):
+            st.cache_data.clear()
+            for key in list(st.session_state.keys()): del st.session_state[key]
+            st.rerun()
+    
+        with st.expander("❓ **How to use AI Assistant**", expanded=False):
+            st.markdown("""
+            ### 🤖 Assistant Commands (Post-Extraction)
+            
+            **1. Bulk Editing**
+            * *"Set isEnabled to Yes for all rows"*
+            * *"Update department to ICU for all nurses"*
+            * *"Set roles to Audit User|Incident Reporter for row 5"*
+            
+            **2. Smart Fixes**
+            * *"Fix all usernames to be lowercase with no spaces"*
+            * *"Fill missing passwords using Med@123"*
+            
+            ---
+            ### 🎯 Smart Context (Pre-Extraction)
+            Use the sidebar input to set rules **before** processing:
+            * *"Only extract clinical staff"*
+            * *"Ignore the second sheet"*
+            * *"Skip rows where designation is Intern"*
+            """)
+    else:
+        srcs = None
 
 # --- MAIN LOGIC ---
+if navigation == "User Segregation & Comparison":
+    from segregation import render_segregation_ui
+    render_segregation_ui()
+    st.stop()
+
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
     try:
