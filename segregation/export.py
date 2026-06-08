@@ -10,31 +10,24 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
     existing_users = client_df[client_df['User Type'] == 'Existing User'].copy() if not client_df.empty else pd.DataFrame()
     new_users = client_df[client_df['User Type'] == 'New User'].copy() if not client_df.empty else pd.DataFrame()
     
-    TARGET_COLS = [
-        "userName", "password", "departments", "roles", "units", "locations", 
-        "email", "phone", "employeeId", "firstName", "middleName", "lastName", 
-        "designation", "timezone", "shiftDuration", "thirdPartyUsername", 
-        "dateOfJoining", "lastWorkingDate", "reportingTo", "isEnabled", "passwordPolicy"
-    ]
+    from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
     
     def format_to_template(df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
             
         # Fallbacks to capture incorrectly named columns from the client file
-        fallbacks = {
-            'email': ['Mail ID', 'mail', 'Email Address'],
-            'phone': ['Personal Phone', 'mobile', 'Mobile Number', 'Phone Number'],
-            'employeeId': ['Employee No', 'emp id']
-        }
+        fallbacks = SEMANTIC_MAPPINGS
         
-        for col in TARGET_COLS:
+        for col in USER_MASTER_COLS:
             if col not in df.columns:
                 found = False
                 if col in fallbacks:
                     for fb in fallbacks[col]:
-                        if fb in df.columns:
-                            df[col] = df[fb]
+                        # Case insensitive match for fallback columns
+                        matching_cols = [c for c in df.columns if str(c).strip().lower() == fb]
+                        if matching_cols:
+                            df[col] = df[matching_cols[0]]
                             found = True
                             break
                 if not found:
@@ -42,11 +35,17 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
                     
         # Intelligent Merge for Existing Users
         # Uses master data as base, overwrites with client data, applies special rules for roles and employeeId
-        for col in TARGET_COLS:
+        for col in USER_MASTER_COLS:
             master_col = f"master_{col}"
             if master_col in df.columns:
                 if col == 'employeeId':
-                    df[col] = df[master_col]
+                    def merge_emp_id(row):
+                        m_val = row.get(master_col, '')
+                        c_val = row.get(col, '')
+                        if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
+                            return m_val
+                        return c_val if pd.notna(c_val) else ''
+                    df[col] = df.apply(merge_emp_id, axis=1)
                 elif col == 'roles':
                     def merge_roles(row):
                         m_role = str(row.get(master_col, '')).strip()
@@ -67,20 +66,13 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
                     def merge_general(row):
                         m_val = row.get(master_col, '')
                         c_val = row.get(col, '')
-                        if pd.isna(c_val) or str(c_val).strip() == '' or str(c_val).strip().lower() == 'nan':
-                            return m_val if not pd.isna(m_val) else ''
-                        return c_val
+                        if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
+                            return m_val
+                        return c_val if pd.notna(c_val) else ''
                     df[col] = df.apply(merge_general, axis=1)
                     
         # Keep exactly the target columns
-        final_cols = TARGET_COLS.copy()
-        
-        # Clean userName: lowercase, no spaces, no special characters
-        if 'userName' in df.columns:
-            import re
-            df['userName'] = df['userName'].astype(str).apply(
-                lambda x: re.sub(r'[^a-z0-9]', '', x.lower()) if pd.notna(x) and str(x).strip() not in ('', 'nan') else ''
-            )
+        final_cols = USER_MASTER_COLS.copy()
         
         # Add internal duplicate flag for AgGrid highlighting
         if 'Is Duplicate' in df.columns:

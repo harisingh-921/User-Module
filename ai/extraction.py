@@ -714,11 +714,15 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     1. Understand the user's request.
     2. If the user wants to MAP a column using the EXTERNAL MAPPING DATA, respond ONLY with a valid JSON object containing "mapping_intent":
        {{"mapping_intent": {{"target_col": "column_in_staff_list", "lookup_col": "key_column_in_mapping_file", "value_col": "value_column_in_mapping_file"}}}}
-    3. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
-    4. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
+    3. If the user wants to perform a SIMPLE FIND AND REPLACE across a column, respond ONLY with a valid JSON object containing "replace_intent":
+       {{"replace_intent": {{"target_col": "column_in_staff_list", "search_text": "text_to_find", "replace_text": "replacement_text"}}}}
+    4. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
+    5. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
+    6. CRITICAL: DO NOT take shortcuts. You MUST exhaustively process EVERY SINGLE ROW in the dataset that matches the criteria. Missing even one row is a failure.
 
     FORMAT EXAMPLES:
     Mapping: {{"mapping_intent": {{"target_col": "departments", "lookup_col": "OldDept", "value_col": "NewDept"}}}}
+    Replace: {{"replace_intent": {{"target_col": "roles", "search_text": "INCIDENT REPORTER", "replace_text": "Incident Reporter"}}}}
     Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
     """
 
@@ -732,7 +736,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"},
-                timeout=60,
+                timeout=120,
             )
 
             raw_res = completion.choices[0].message.content
@@ -769,6 +773,31 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                 else:
                     last_error = f"AI generated invalid mapping columns: {target_col}, {lookup_col}, {value_col}"
                     break
+
+            # Programmatic Replace Mode
+            if "replace_intent" in res_data:
+                intent = res_data["replace_intent"]
+                target_col = intent.get("target_col")
+                search_text = intent.get("search_text", "")
+                replace_text = intent.get("replace_text", "")
+                
+                if target_col in df.columns and search_text:
+                    new_df = df.copy()
+                    import re
+                    escaped_search = re.escape(search_text)
+                    
+                    # Store original values to count affected rows
+                    orig_vals = new_df[target_col].copy()
+                    
+                    # Convert to string and do regex replacement
+                    new_df[target_col] = new_df[target_col].astype(str).str.replace(escaped_search, replace_text, regex=True)
+                    new_df[target_col] = new_df[target_col].replace('nan', '')
+                    
+                    # Calculate affected
+                    affected = (orig_vals.astype(str).replace('nan', '') != new_df[target_col]).sum()
+                    
+                    summary = f"AI programmatically replaced '{search_text}' with '{replace_text}' in {affected} row(s) of '{target_col}'."
+                    return new_df, summary
 
             # Normalise: AI may return {"updates": [...]} or bare list
             updates = res_data.get('updates', res_data) if isinstance(res_data, dict) else res_data

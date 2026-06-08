@@ -39,16 +39,47 @@ def build_master_lookup_dicts(master_df: pd.DataFrame, priority_mappings: List[d
     """
     Builds optimized O(1) dictionary lookups for Medblaze master data.
     """
+    from config.constants import SEMANTIC_MAPPINGS, USER_MASTER_COLS
+    
+    # Normalize master_df columns first
+    normalized_master_df = master_df.copy()
+    for col in normalized_master_df.columns:
+        col_lower = str(col).strip().lower()
+        
+        # Check explicit mappings first
+        renamed = False
+        for target_col, aliases in SEMANTIC_MAPPINGS.items():
+            if col_lower in aliases or col_lower == target_col.lower():
+                normalized_master_df.rename(columns={col: target_col}, inplace=True)
+                renamed = True
+                break
+                
+        # If not renamed by explicit mapping, check against standard target columns directly
+        if not renamed:
+            for target_col in USER_MASTER_COLS:
+                if col_lower == target_col.lower() or col_lower.replace(" ", "") == target_col.lower():
+                    normalized_master_df.rename(columns={col: target_col}, inplace=True)
+                    break
+                
     lookups = {}
     for m in priority_mappings:
         name = m['name']
-        col = m['master_col']
+        original_col = m['master_col']
+        
+        # Find what this column was renamed to
+        col = original_col
+        col_lower = str(original_col).strip().lower()
+        for target_col, aliases in SEMANTIC_MAPPINGS.items():
+            if col_lower in aliases or col_lower == target_col.lower():
+                col = target_col
+                break
+                
         lookups[name] = {}
         
-        if col not in master_df.columns:
+        if col not in normalized_master_df.columns:
             continue
             
-        for _, row in master_df.iterrows():
+        for _, row in normalized_master_df.iterrows():
             val = normalize_value(row[col], name)
             if val:
                 lookups[name][val] = row.to_dict()

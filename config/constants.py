@@ -6,11 +6,17 @@ USER_MASTER_COLS = [
 ]
 
 SEMANTIC_MAPPINGS = {
-    'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
+    'userName': ['user name', 'username', 'login name', 'employee name', 'emp name', 'staff name'],
+    'employeeId': ['emp id', 'employee id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'staff id', 'user id', 'login id'],
     'departments': ['department', 'departments', 'dept', 'department name', 'specialty', 'unit', 'cost center', 'branch', 'facility'],
     'firstName': ['first name', 'fname', 'given name', 'name 1'],
     'lastName': ['last name', 'lname', 'surname', 'family name', 'name 2'],
     'email': ['e-mail', 'mail id', 'official email', 'email address'],
     'phone': ['contact', 'mobile', 'mobile no', 'cell', 'telephone', 'phone number', 'personal phone'],
-    'designation': ['position', 'rank', 'job title', 'role name', 'category']
+    'designation': ['position', 'rank', 'job title', 'role name', 'category'],
+    'isEnabled': ['enabled', 'status', 'active', 'is active', 'user status'],
+    'roles': ['role', 'roles', 'user role', 'user roles', 'access', 'privilege'],
+    'units': ['unit', 'units', 'facility', 'hospital', 'branch'],
+    'locations': ['location', 'locations', 'site'],
+    'thirdPartyUsername': ['third party/ ad username', 'third party username', 'ad username', 'third party/']
 }
