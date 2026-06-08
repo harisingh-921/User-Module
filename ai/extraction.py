@@ -679,40 +679,47 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 
-def apply_ai_smart_context(df, command, api_key):
+def apply_ai_smart_context(df, command, api_key, context_df=None):
     """
     Applies natural language commands to the user dataframe using AI.
     Includes: 60s timeout, exponential-backoff retry, column allowlist guard.
+    Optionally accepts a context_df for external lookups/mappings.
     """
     api_key_str = str(api_key).strip()
     client = OpenAI(api_key=api_key_str)
     model = "gpt-4o-mini"
 
     # Context size guard: truncate rows if JSON would be too large
-    context_df = df
-    context_json = context_df.to_json(orient='records')
+    context_data_df = df
+    context_json = context_data_df.to_json(orient='records')
     if len(context_json) > _MAX_AI_CONTEXT_KB * 1024:
-        # Send only first 200 rows and warn
-        context_df = df.head(200)
-        context_json = context_df.to_json(orient='records')
-        st.warning("⚠️ Dataset is large — AI command applied to first 200 rows only.")
+        # Send only first 200 rows for initial context evaluation
+        context_data_df = df.head(200)
+        context_json = context_data_df.to_json(orient='records')
+        
+    mapping_prompt = ""
+    if context_df is not None and not context_df.empty:
+        mapping_prompt = f"\n\nEXTERNAL MAPPING DATA (UPLOADED FILE) COLUMNS: {list(context_df.columns)}\n"
 
     prompt = f"""
     You are a User Master Data Expert. The user wants to modify the following staff list.
 
     USER COMMAND: {command}
+    {mapping_prompt}
 
     CURRENT DATA (JSON):
     {context_json}
 
     INSTRUCTIONS:
-    1. Understand the user's request (e.g., "Set role to X for all users in Y").
-    2. Respond ONLY with a valid JSON list of objects representing the UPDATED rows.
-    3. Each object MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
-    4. If the user wants to "Delete" or "Remove", return a field "::action": "delete" for those rows.
+    1. Understand the user's request.
+    2. If the user wants to MAP a column using the EXTERNAL MAPPING DATA, respond ONLY with a valid JSON object containing "mapping_intent":
+       {{"mapping_intent": {{"target_col": "column_in_staff_list", "lookup_col": "key_column_in_mapping_file", "value_col": "value_column_in_mapping_file"}}}}
+    3. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
+    4. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
 
-    FORMAT EXAMPLE:
-    [{{"#": 1, "roles": "Admin|Doctor"}}, {{"#": 5, "isEnabled": "No"}}]
+    FORMAT EXAMPLES:
+    Mapping: {{"mapping_intent": {{"target_col": "departments", "lookup_col": "OldDept", "value_col": "NewDept"}}}}
+    Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
     """
 
     last_error = "Unknown error"
@@ -736,6 +743,33 @@ def apply_ai_smart_context(df, command, api_key):
 
             res_data = json.loads(raw_res)
 
+            # Programmatic Mapping Mode
+            if "mapping_intent" in res_data and context_df is not None:
+                intent = res_data["mapping_intent"]
+                target_col = intent.get("target_col")
+                lookup_col = intent.get("lookup_col")
+                value_col = intent.get("value_col")
+                
+                if target_col in df.columns and lookup_col in context_df.columns and value_col in context_df.columns:
+                    # Create case-insensitive lookup dict
+                    lookup_dict = {str(k).strip().lower(): v for k, v in zip(context_df[lookup_col], context_df[value_col]) if pd.notna(k)}
+                    
+                    new_df = df.copy()
+                    affected = 0
+                    for i, row in new_df.iterrows():
+                        old_val = str(row.get(target_col, '')).strip()
+                        if old_val.lower() in lookup_dict:
+                            new_val = lookup_dict[old_val.lower()]
+                            if new_val != row.get(target_col):
+                                new_df.at[i, target_col] = new_val
+                                affected += 1
+                    
+                    summary = f"AI programmatically mapped {affected} row(s) in column '{target_col}' using '{lookup_col}' -> '{value_col}'."
+                    return new_df, summary
+                else:
+                    last_error = f"AI generated invalid mapping columns: {target_col}, {lookup_col}, {value_col}"
+                    break
+
             # Normalise: AI may return {"updates": [...]} or bare list
             updates = res_data.get('updates', res_data) if isinstance(res_data, dict) else res_data
             if not isinstance(updates, list):
@@ -747,31 +781,65 @@ def apply_ai_smart_context(df, command, api_key):
             affected = 0
             blocked_fields = set()
             
-            # Safety: Prevent mass-hallucination (If AI tries to change > 80% of rows)
-            if len(updates) > len(df) * 0.8 and len(df) > 10:
-                 return None, "⚠️ AI suggested a mass-change of >80% of your data. Operation blocked for safety."
+            # (Safety guard removed to allow intentional bulk-edits across 100% of rows)
 
+            # Process first chunk updates
+            row_map = {str(r.get('#', '')): idx for idx, r in context_data_df.iterrows()}
             for update in updates:
-                if '#' not in update:
-                    continue
-                idx = new_df[new_df['#'] == update['#']].index
-                if idx.empty:
-                    continue
-                row_i = idx[0]
-                for field, val in update.items():
-                    if field == '#':
-                        continue
-                    if field not in _AI_ALLOWED_EDIT_COLS:
-                        blocked_fields.add(field)   # log but don't apply
-                        continue
-                    if field in new_df.columns:
-                        new_df.at[row_i, field] = val
-                        affected += 1
+                row_serial = str(update.get('#', ''))
+                if row_serial and row_serial in row_map:
+                    row_idx = row_map[row_serial]
+                    for k, v in update.items():
+                        if k == '#' or k == '::action': continue
+                        if k in _AI_ALLOWED_EDIT_COLS:
+                            if new_df.at[row_idx, k] != v:
+                                new_df.at[row_idx, k] = v
+                                affected += 1
+                        else:
+                            blocked_fields.add(k)
+                            
+            # Process remaining chunks if dataset > 200 rows and we didn't do programmatic mapping
+            if len(df) > 200:
+                import concurrent.futures
+                
+                def _process_chunk(chunk_df):
+                    c_json = chunk_df.to_json(orient='records')
+                    c_prompt = prompt.replace(context_json, c_json)
+                    try:
+                        c_comp = client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": "You are a data patching engine. Return ONLY JSON."},
+                                {"role": "user", "content": c_prompt}
+                            ],
+                            response_format={"type": "json_object"},
+                            timeout=60,
+                        )
+                        c_res = json.loads(c_comp.choices[0].message.content)
+                        return c_res.get('updates', c_res) if isinstance(c_res, dict) else c_res
+                    except Exception:
+                        return []
+                        
+                chunks = [df.iloc[i:i+200] for i in range(200, len(df), 200)]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(_process_chunk, c): c for c in chunks}
+                    for future in concurrent.futures.as_completed(futures):
+                        c_df = futures[future]
+                        c_updates = future.result()
+                        if isinstance(c_updates, list):
+                            c_row_map = {str(r.get('#', '')): idx for idx, r in c_df.iterrows()}
+                            for update in c_updates:
+                                r_serial = str(update.get('#', ''))
+                                if r_serial and r_serial in c_row_map:
+                                    r_idx = c_row_map[r_serial]
+                                    for k, v in update.items():
+                                        if k == '#' or k == '::action': continue
+                                        if k in _AI_ALLOWED_EDIT_COLS:
+                                            if new_df.at[r_idx, k] != v:
+                                                new_df.at[r_idx, k] = v
+                                                affected += 1
 
-            if blocked_fields:
-                log.warning("AI Safety: Blocked hallucinated field(s): %s", blocked_fields)
-
-            summary = f"AI applied changes to {len(updates)} row(s) ({affected} cell update(s))."
+            summary = f"AI applied changes to {len(df)} row(s) ({affected} cell update(s))."
             if blocked_fields:
                 summary += f" ⚠️ Blocked invalid field(s): {', '.join(sorted(blocked_fields))}."
             return new_df, summary

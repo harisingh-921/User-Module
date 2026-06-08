@@ -55,7 +55,17 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
             df['_is_duplicate_user'] = df['Is Duplicate'].fillna(False).astype(bool)
             final_cols.append('_is_duplicate_user')
             
-        return df[final_cols]
+        df_final = df[final_cols].copy()
+        
+        # After mapping and stripping unmapped columns, drop any resulting exact clones
+        check_cols = [c for c in df_final.columns if c != '_is_duplicate_user']
+        df_final = df_final.drop_duplicates(subset=check_cols, keep='first')
+        
+        # Since we just dropped exact clones, none of the remaining rows have exact clones in this dataframe!
+        if '_is_duplicate_user' in df_final.columns:
+            df_final['_is_duplicate_user'] = False
+            
+        return df_final
         
     return {
         'Existing Users': format_to_template(existing_users),
@@ -73,7 +83,7 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
         
     def get_dup_indices(df):
         if '_is_duplicate_user' in df.columns:
-            return [i + 1 for i, val in enumerate(df['_is_duplicate_user']) if val]
+            return [i + 1 for i, val in enumerate(df['_is_duplicate_user']) if str(val).strip().lower() in ('true', '1', 't')]
         return []
         
     existing_dup_idx = get_dup_indices(existing_users)

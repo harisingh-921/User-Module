@@ -232,19 +232,35 @@ def _compute_ai_diff(old_df: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame
     old_vals = old_df[cols].iloc[:min_len].astype(str).apply(lambda x: x.str.strip())
     new_vals = new_df[cols].iloc[:min_len].astype(str).apply(lambda x: x.str.strip())
     
-    changed = old_vals.compare(new_vals, result_names=('Before', 'After'))
-    if changed.empty:
-        return pd.DataFrame(columns=['Row #', 'Column', 'Before', 'After'])
+    changed_sparse = old_vals.compare(new_vals, result_names=('Before', 'After'))
+    if changed_sparse.empty:
+        return pd.DataFrame(columns=['Row #', 'Column', 'Before', 'After', 'Status'])
+        
+    # Get only the columns that actually had modifications
+    changed_cols = changed_sparse.columns.get_level_values(0).unique()
+    
+    # Rerun compare on just those columns, but keep all rows so we can show 'untouched' cells
+    changed = old_vals[changed_cols].compare(new_vals[changed_cols], keep_shape=True, keep_equal=True, result_names=('Before', 'After'))
     
     # Stack to convert to long format efficiently
     changed = changed.stack(level=0).reset_index()
     changed.rename(columns={'level_0': 'row_idx', 'level_1': 'Column'}, inplace=True)
     
-    # Map row_idx to Row #
-    row_nums = old_df['#'].iloc[:min_len].values if '#' in old_df.columns else range(1, min_len + 1)
-    changed['Row #'] = changed['row_idx'].apply(lambda idx: row_nums[idx])
+    # Map row_idx to Row # using the actual dataframe index
+    if '#' in old_df.columns:
+        row_nums_map = old_df['#'].iloc[:min_len].to_dict()
+    else:
+        row_nums_map = {idx: i+1 for i, idx in enumerate(old_df.index[:min_len])}
+        
+    changed['Row #'] = changed['row_idx'].apply(lambda idx: row_nums_map.get(idx, idx))
     
-    return changed[['Row #', 'Column', 'Before', 'After']]
+    # Add Status and sort (Changed at the top, Untouched at the bottom)
+    import numpy as np
+    changed['is_changed'] = changed['Before'] != changed['After']
+    changed['Status'] = np.where(changed['is_changed'], '✏️ Changed', '➖ Untouched')
+    changed = changed.sort_values(by=['is_changed', 'Row #'], ascending=[False, True]).reset_index(drop=True)
+    
+    return changed[['Row #', 'Column', 'Before', 'After', 'Status']]
 
 def _df_hash(df: pd.DataFrame, cols: list) -> int:
     """Fast structural hash of selected columns using pandas' built-in vectorised
@@ -262,6 +278,14 @@ def _df_hash(df: pd.DataFrame, cols: list) -> int:
         ))
     except Exception:
         return 0  # fallback: treat as changed so diff runs
+
+def _recalculate_duplicates() -> None:
+    """Dynamically recalculates the exact-duplicate flag based on current data."""
+    if 'df_users' in st.session_state and st.session_state.df_users is not None:
+        df = st.session_state.df_users
+        if '_is_duplicate_user' in df.columns:
+            check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
+            df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
 
 def _update_users_hash() -> None:
     """Immediately updates _df_users_hash in SessionState based on current df_users."""
@@ -394,7 +418,14 @@ with st.sidebar:
     </div>
         """, unsafe_allow_html=True)
 
-    navigation = st.radio("Navigation Mode", ["New User", "Update User", "Both"])
+    if 'current_nav' not in st.session_state:
+        st.session_state.current_nav = "Both"
+    if 'nav_radio_key' not in st.session_state:
+        st.session_state.nav_radio_key = "Both"
+
+    selected_nav = st.radio("Navigation Mode", ["New User", "Update User", "Both"], key="nav_radio_key")
+    st.session_state.current_nav = selected_nav
+    navigation = st.session_state.current_nav
     
     if navigation == "New User":
         st.markdown("""
@@ -428,33 +459,40 @@ with st.sidebar:
         user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
     
         st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-        if st.button("🗑️ Full Reset", width="stretch"):
-            st.cache_data.clear()
-            for key in list(st.session_state.keys()): del st.session_state[key]
-            st.rerun()
-    
-        with st.expander("❓ **How to use AI Assistant**", expanded=False):
-            st.markdown("""
-            ### 🤖 Assistant Commands (Post-Extraction)
-            
-            **1. Bulk Editing**
-            * *"Set isEnabled to Yes for all rows"*
-            * *"Update department to ICU for all nurses"*
-            * *"Set roles to Audit User|Incident Reporter for row 5"*
-            
-            **2. Smart Fixes**
-            * *"Fix all usernames to be lowercase with no spaces"*
-            * *"Fill missing passwords using Med@123"*
-            
-            ---
-            ### 🎯 Smart Context (Pre-Extraction)
-            Use the sidebar input to set rules **before** processing:
-            * *"Only extract clinical staff"*
-            * *"Ignore the second sheet"*
-            * *"Skip rows where designation is Intern"*
-            """)
     else:
         srcs = None
+
+    st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
+    if st.button("🗑️ Full Reset", width="stretch"):
+        st.cache_data.clear()
+        for key in list(st.session_state.keys()): del st.session_state[key]
+        st.rerun()
+
+    with st.expander("❓ **How to use AI Assistant**", expanded=False):
+        st.markdown("""
+        ### 🤖 Assistant Commands (Post-Extraction)
+        
+        **1. Bulk Editing**
+        * *"Set isEnabled to Yes for all rows"*
+        * *"Update department to ICU for all nurses"*
+        * *"Set roles to Audit User|Incident Reporter for row 5"*
+        
+        **2. Smart Fixes**
+        * *"Fix all usernames to be lowercase with no spaces"*
+        * *"Fill missing passwords using Med@123"*
+        
+        **3. Mapping from Files**
+        Upload a mapping file and simply say:
+        * *"Map departments"*
+        * *"Map roles using the file"*
+        
+        ---
+        ### 🎯 Smart Context (Pre-Extraction)
+        Use the sidebar input to set rules **before** processing:
+        * *"Only extract clinical staff"*
+        * *"Ignore the second sheet"*
+        * *"Skip rows where designation is Intern"*
+        """)
 
 # --- MAIN LOGIC ---
 if navigation == "Update User":
@@ -479,6 +517,12 @@ if navigation == "Both":
         if st.session_state.get('prev_segregation_view_choice') != current_choice:
             st.session_state['df_users'] = st.session_state['segregation_dfs'][current_choice].copy()
             st.session_state['prev_segregation_view_choice'] = current_choice
+            
+            # CRITICAL: Force AgGrid to remount completely to prevent previous grid state
+            # from bleeding into grid_response['data'] and overwriting the new dataset.
+            if 'grid_key' in st.session_state:
+                st.session_state.grid_key += 1
+                
             # Update hash to force grid redraw
             _update_users_hash()
     else:
@@ -730,7 +774,8 @@ if 'df_users' in st.session_state:
                 if not curr_cleaned.equals(new_cleaned):
                     # Real change confirmed — push diff and update state
                     _save_cell_diff(df, new_data)
-                    st.session_state.df_users    = new_data
+                    st.session_state.df_users = new_data
+                    _recalculate_duplicates()
                     st.session_state._df_users_hash = new_hash  # update cached hash
                     st.rerun()  # lock in new state
                 else:
@@ -743,9 +788,26 @@ if 'df_users' in st.session_state:
         if c_add.button("➕ ADD ROW", width="stretch"):
             _save_state()
             new_row = pd.DataFrame([{col: "" for col in df.columns}])
-            new_row['#'] = len(df) + 1
             new_row['isEnabled'] = "Yes"
-            st.session_state.df_users = pd.concat([df, new_row], ignore_index=True)
+            
+            sel_rows = grid_response.get('selected_rows')
+            if sel_rows is not None and len(sel_rows) > 0:
+                if isinstance(sel_rows, pd.DataFrame):
+                    insert_after_serial = sel_rows['#'].iloc[-1]
+                else:
+                    insert_after_serial = sel_rows[-1].get('#')
+                
+                idx = df[df['#'] == insert_after_serial].index
+                if len(idx) > 0:
+                    insert_idx = idx[0] + 1
+                    st.session_state.df_users = pd.concat([df.iloc[:insert_idx], new_row, df.iloc[insert_idx:]], ignore_index=True)
+                else:
+                    st.session_state.df_users = pd.concat([df, new_row], ignore_index=True)
+            else:
+                st.session_state.df_users = pd.concat([df, new_row], ignore_index=True)
+                
+            st.session_state.df_users['#'] = range(1, len(st.session_state.df_users) + 1)
+            _recalculate_duplicates()
             _update_users_hash()  # update cached hash immediately
             st.session_state.grid_key += 1
             st.rerun()
@@ -764,6 +826,7 @@ if 'df_users' in st.session_state:
                 st.session_state.df_users = df[~df['#'].isin(delete_ids)].reset_index(drop=True)
                 # Re-generate serial numbers
                 st.session_state.df_users['#'] = range(1, len(st.session_state.df_users) + 1)
+                _recalculate_duplicates()
                 _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.rerun()
@@ -773,6 +836,7 @@ if 'df_users' in st.session_state:
         if c_u.button("↩️ Undo", help="Undoes bulk actions like Delete/AI. (Jumps to top)"):
             if st.session_state.get('undo_stack'):
                 st.session_state.df_users = _pop_undo(df)
+                _recalculate_duplicates()
                 _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.session_state.just_undone = True
@@ -781,6 +845,7 @@ if 'df_users' in st.session_state:
         if c_r.button("↪️ Redo", help="Redoes bulk actions. (Jumps to top)"):
             if st.session_state.get('redo_stack'):
                 st.session_state.df_users = _pop_redo(df)
+                _recalculate_duplicates()
                 _update_users_hash()  # update cached hash immediately
                 st.session_state.grid_key += 1
                 st.session_state.just_undone = True
@@ -799,6 +864,7 @@ if 'df_users' in st.session_state:
                 saved_df['#'] = range(1, len(saved_df) + 1)
             
             st.session_state.df_users = saved_df
+            _recalculate_duplicates()
             _update_users_hash()                    # update cached hash immediately
             st.session_state._excel_cache = {}      # clear excel cache
             
@@ -829,15 +895,37 @@ if 'df_users' in st.session_state:
         # --- AI CONFIGURATION ASSISTANT ---
         st.markdown("---")
         st.subheader("💬 AI Configuration Assistant")
-        chat_cmd = st.text_input("✨ Commands...", placeholder="e.g. 'Change role to Admin for John Doe'")
+        mapping_file = st.file_uploader("Upload Context/Mapping File (Optional)", type=["xlsx", "xls", "csv"], key="ai_mapping_file", help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments.")
+        if 'ai_cmd_history' not in st.session_state:
+            st.session_state.ai_cmd_history = []
+        if 'chat_input_key' not in st.session_state:
+            st.session_state.chat_input_key = 0
+            
+        chat_cmd = st.text_input("✨ Commands...", placeholder="e.g. 'Map the departments column'", key=f"ai_chat_cmd_{st.session_state.chat_input_key}")
+        
+        if st.session_state.ai_cmd_history:
+            with st.expander(f"🕒 Command History ({len(st.session_state.ai_cmd_history)})", expanded=False):
+                for hc in st.session_state.ai_cmd_history:
+                    st.markdown(f"- `{hc}`")
 
         if st.button("🪄 Apply AI"):
             if not chat_cmd:
                 st.warning("Please enter a command.")
             else:
                 with st.status("🧠 AI is processing your request...", expanded=True) as status:
+                    context_df = None
+                    if mapping_file is not None:
+                        try:
+                            if mapping_file.name.endswith('.csv'):
+                                context_df = pd.read_csv(mapping_file)
+                            else:
+                                context_df = pd.read_excel(mapping_file)
+                            st.write(f"Context file '{mapping_file.name}' loaded successfully.")
+                        except Exception as e:
+                            st.error(f"Error reading mapping file: {e}")
+                            
                     from ai.openai_service import apply_ai_smart_context
-                    updated_df, summary = apply_ai_smart_context(df, chat_cmd, api_key)
+                    updated_df, summary = apply_ai_smart_context(df, chat_cmd, api_key, context_df=context_df)
                     if updated_df is not None:
                         diff_df = _compute_ai_diff(df, updated_df)
                         st.session_state._ai_preview = {
@@ -866,9 +954,12 @@ if 'df_users' in st.session_state:
                 if pc1.button("✅ Confirm & Apply", type="primary", width="stretch"):
                     _save_state()
                     st.session_state.df_users        = preview['updated_df']
+                    _recalculate_duplicates()
                     _update_users_hash()  # update cached hash immediately
                     st.session_state._ai_preview     = None
                     st.session_state.grid_key        += 1
+                    st.session_state.ai_cmd_history.insert(0, preview['cmd'])
+                    st.session_state.chat_input_key  += 1
                     st.rerun()
                 if pc2.button("❌ Cancel", width="stretch"):
                     st.session_state._ai_preview = None
@@ -878,12 +969,16 @@ if 'df_users' in st.session_state:
         st.markdown("---")
 
         # ── Cached Excel Export ───────────────────────────────────────────────────────────
+        # Sync back to segregation_dfs if in Both mode
         if navigation == "Both":
-            # Sync the current grid data to the respective segregation dataset before generating
             if 'segregation_view_choice' in st.session_state and 'segregation_dfs' in st.session_state:
                 current_choice = st.session_state['segregation_view_choice']
                 st.session_state['segregation_dfs'][current_choice] = grid_response['data'].copy()
+                _recalculate_duplicates()
+                _update_users_hash()
                 
+        # --- DOWNLOAD LOGIC ---
+        if navigation == "Both" and 'segregation_dfs' in st.session_state:
             _export_hash_key = str(st.session_state._df_users_hash) + "_both"
             if _export_hash_key not in st.session_state._excel_cache:
                 from segregation.export import generate_segregation_workbook
@@ -916,7 +1011,7 @@ if 'df_users' in st.session_state:
                 with pd.ExcelWriter(_buf, engine='xlsxwriter') as _writer:
                     _export_df.to_excel(_writer, index=False, sheet_name='Users')
                     
-                    # Auto-fit column widths (kept from previous step for usability)
+                    # Auto-fit column widths
                     _worksheet = _writer.sheets['Users']
                     for _i, _col in enumerate(_export_df.columns):
                         _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]

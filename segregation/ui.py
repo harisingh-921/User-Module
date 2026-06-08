@@ -10,8 +10,11 @@ def read_file(uploaded_file):
     else:
         df = pd.read_excel(uploaded_file)
     
-    # Drop rows that are completely empty (all NaNs) to prevent them from being flagged as duplicates
-    return df.dropna(how='all')
+    # Drop rows that are completely empty (all NaNs)
+    df = df.dropna(how='all')
+    
+    # Silently drop exact identical clones to prevent the UI from surfacing them as errors
+    return df.drop_duplicates(keep='first')
 
 def guess_col_index(cols, opt_name):
     """Tries to guess the correct column index for a given standard field."""
@@ -147,7 +150,19 @@ def render_segregation_ui():
                         # Wait, the radio button itself triggers the rerun.
                         # We will let app.py handle the synchronization logic so we don't drop edits.
                         
-                        view_choice = st.radio("Select Dataset to Edit", ["Existing Users", "New Users"], horizontal=True)
+                        st.markdown("### **Select Dataset to Edit**")
+                        
+                        # Inject custom CSS to enlarge and bold the radio button options
+                        st.markdown("""
+                        <style>
+                        div[role="radiogroup"] label p {
+                            font-size: 1.15rem !important;
+                            font-weight: bold !important;
+                        }
+                        </style>
+                        """, unsafe_allow_html=True)
+                        
+                        view_choice = st.radio("Select Dataset to Edit", ["Existing Users", "New Users"], horizontal=True, label_visibility="collapsed")
                         st.session_state['segregation_view_choice'] = view_choice
                         
                 else:
