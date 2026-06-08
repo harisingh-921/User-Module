@@ -427,40 +427,31 @@ with st.sidebar:
     st.session_state.current_nav = selected_nav
     navigation = st.session_state.current_nav
     
-    if navigation == "New User":
-        st.markdown("""
-        <hr style='border: none; border-top: 1px solid rgba(15,23,42,0.1); margin: 8px 0 16px 0;'/>
-        <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
-            <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
-                         padding:3px 8px; border-radius:20px;'>STEP 1</span>
-            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Source Setup</span>
-        </div>
-        """, unsafe_allow_html=True)
+    st.markdown("""
+    <hr style='border: none; border-top: 1px solid rgba(15,23,42,0.1); margin: 8px 0 16px 0;'/>
+    <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
+        <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
+                     padding:3px 8px; border-radius:20px;'>STEP 1</span>
+        <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Global Settings</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    pass_prefix = st.text_input("Password Prefix", value="Med", help="Prefix for auto-generated passwords")
+    st.session_state.pass_prefix = pass_prefix
+
+    st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
+    st.markdown("""
+    <div style='display:flex; align-items:center; gap:8px; padding: 4px 2px 10px 2px;'>
+        <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
+                     padding:3px 8px; border-radius:20px;'>STEP 2</span>
+        <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Smart Context</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
+    st.session_state.user_intent = user_intent
     
-        srcs = st.file_uploader("Upload User List(s)", type=["xlsx", "xls", "csv", "pdf", "docx"], accept_multiple_files=True, key="user_file_uploader")
-        if srcs:
-            st.session_state["uploaded_files"] = srcs
-        elif "uploaded_files" in st.session_state:
-            srcs = st.session_state["uploaded_files"]
-            if srcs:
-                st.success(f"📂 **{len(srcs)} file(s)** active")
-    
-        pass_prefix = st.text_input("Password Prefix", value="Med", help="Prefix for auto-generated passwords")
-    
-        st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-        st.markdown("""
-        <div style='display:flex; align-items:center; gap:8px; padding: 4px 2px 10px 2px;'>
-            <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
-                         padding:3px 8px; border-radius:20px;'>STEP 2</span>
-            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Smart Context</span>
-        </div>
-        """, unsafe_allow_html=True)
-    
-        user_intent = st.text_area("🎯 Smart Context (Optional)", placeholder="e.g. 'Only extract clinical staff'", label_visibility="collapsed", height=80)
-    
-        st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
-    else:
-        srcs = None
+    srcs = None
 
     st.markdown("""<div style='height:4px'></div>""", unsafe_allow_html=True)
     if st.button("🗑️ Full Reset", width="stretch"):
@@ -499,7 +490,17 @@ if navigation == "Update User":
     st.info("Update User functionality is coming soon!")
     st.stop()
     
-if navigation == "Both":
+if navigation == "New User":
+    st.markdown("### Step 1: Upload User List(s)")
+    srcs = st.file_uploader("Upload an Excel or CSV file to begin automated extraction", type=["xlsx", "xls", "csv", "pdf", "docx"], accept_multiple_files=True, key="user_file_uploader")
+    if srcs:
+        st.session_state["uploaded_files"] = srcs
+    elif "uploaded_files" in st.session_state:
+        srcs = st.session_state["uploaded_files"]
+        if srcs:
+            st.success(f"📂 **{len(srcs)} file(s)** active")
+            
+elif navigation == "Both":
     from segregation import render_segregation_ui
     render_segregation_ui()
     
@@ -973,8 +974,12 @@ if 'df_users' in st.session_state:
         if navigation == "Both":
             if 'segregation_view_choice' in st.session_state and 'segregation_dfs' in st.session_state:
                 current_choice = st.session_state['segregation_view_choice']
-                st.session_state['segregation_dfs'][current_choice] = grid_response['data'].copy()
+                # Sync grid data to df_users first so we can recalculate duplicates properly
+                st.session_state.df_users = grid_response['data'].copy()
                 _recalculate_duplicates()
+                
+                # Now push the fully recalculated dataframe back into the segregation bucket
+                st.session_state['segregation_dfs'][current_choice] = st.session_state.df_users.copy()
                 _update_users_hash()
                 
         # --- DOWNLOAD LOGIC ---

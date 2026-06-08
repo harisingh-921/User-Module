@@ -40,6 +40,38 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
                 if not found:
                     df[col] = ''
                     
+        # Intelligent Merge for Existing Users
+        # Uses master data as base, overwrites with client data, applies special rules for roles and employeeId
+        for col in TARGET_COLS:
+            master_col = f"master_{col}"
+            if master_col in df.columns:
+                if col == 'employeeId':
+                    df[col] = df[master_col]
+                elif col == 'roles':
+                    def merge_roles(row):
+                        m_role = str(row.get(master_col, '')).strip()
+                        c_role = str(row.get(col, '')).strip()
+                        if m_role.lower() == 'nan': m_role = ''
+                        if c_role.lower() == 'nan': c_role = ''
+                        
+                        if m_role and c_role and m_role.lower() != c_role.lower():
+                            if c_role.lower() not in m_role.lower():
+                                return f"{m_role} | {c_role}"
+                            return m_role
+                        elif m_role:
+                            return m_role
+                        else:
+                            return c_role
+                    df[col] = df.apply(merge_roles, axis=1)
+                else:
+                    def merge_general(row):
+                        m_val = row.get(master_col, '')
+                        c_val = row.get(col, '')
+                        if pd.isna(c_val) or str(c_val).strip() == '' or str(c_val).strip().lower() == 'nan':
+                            return m_val if not pd.isna(m_val) else ''
+                        return c_val
+                    df[col] = df.apply(merge_general, axis=1)
+                    
         # Keep exactly the target columns
         final_cols = TARGET_COLS.copy()
         
@@ -89,10 +121,12 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
     existing_dup_idx = get_dup_indices(existing_users)
     new_dup_idx = get_dup_indices(new_users)
     
-    # Drop the internal grid marker before exporting to Excel
+    # Drop internal columns before exporting to Excel
     for df in [existing_users, new_users]:
         if '_is_duplicate_user' in df.columns:
             df.drop(columns=['_is_duplicate_user'], inplace=True)
+        if '#' in df.columns:
+            df.drop(columns=['#'], inplace=True)
         
     # Write to Excel
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
