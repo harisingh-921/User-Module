@@ -318,14 +318,21 @@ if 'df_users' in st.session_state:
                 st.session_state.visible_cols = new_selection
 
         # --- DUPLICATE DETECTION FOR UI HIGHLIGHTING ---
-        if not df.empty and 'userName' in df.columns:
-            # Filter out empty usernames from duplicate check to avoid highlighting all empty rows
-            valid_names = df['userName'].astype(str).str.strip().replace(['', 'nan', 'None', '-'], pd.NA).dropna()
-            counts = valid_names.value_counts()
-            dups = counts[counts > 1].index
-            df['_is_duplicate_user'] = df['userName'].isin(dups)
+        if not df.empty:
+            check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
+            df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
+            
+            if 'userName' in df.columns:
+                normalized_names = df['userName'].astype(str).str.strip().str.lower()
+                valid_names = normalized_names.replace(['', 'nan', 'none', '-', 'na', 'n/a'], pd.NA).dropna()
+                counts = valid_names.value_counts()
+                dups = counts[counts > 1].index
+                df['_is_duplicate_username'] = normalized_names.isin(dups)
+            else:
+                df['_is_duplicate_username'] = False
         else:
             df['_is_duplicate_user'] = False
+            df['_is_duplicate_username'] = False
 
         # --- AGGRID ---
         gb = GridOptionsBuilder.from_dataframe(df)
@@ -335,21 +342,33 @@ if 'df_users' in st.session_state:
         # '#' always pinned left — configured first so it's always at position 0
         gb.configure_column("#", headerName="#", width=80, pinned='left', editable=False,
                             checkboxSelection=True, headerCheckboxSelection=True)
-        # Hide duplicate flag
+        # Hide duplicate flags
         gb.configure_column("_is_duplicate_user", hide=True)
+        gb.configure_column("_is_duplicate_username", hide=True)
         # Hide all user cols not in visible selection
         for col in user_cols:
             if col not in st.session_state.visible_cols:
                 gb.configure_column(col, hide=True)
+            elif col == "userName":
+                gb.configure_column(col, cellStyle=JsCode("""
+                    function(params) {
+                        if (params.data && params.data._is_duplicate_username === true) {
+                            return { 'background-color': '#ffcdd2' };
+                        }
+                        return null;
+                    }
+                """))
+                
         _is_large = len(df) > _LARGE_DATASET_ROWS
         if _is_large:
             # Large-dataset mode: pagination + disable expensive grid features
-            gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=100)
+            gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=200)
             gb.configure_grid_options(
+                paginationPageSizeSelector=[200, 400, 600, 800, 1000],
                 rowSelection='multiple',
                 suppressRowClickSelection=True,
-                enableRangeSelection=False,    # disabled for performance
-                enableFillHandle=False,         # disabled for performance
+                enableRangeSelection=True,
+                enableFillHandle=True,
                 undoRedoCellEditing=False,      # Python-side undo is active
                 getRowStyle=JsCode("""
                     function(params) {
@@ -360,11 +379,6 @@ if 'df_users' in st.session_state:
                     }
                 """)
             )
-            if 'shown_large_warn' not in st.session_state or \
-               st.session_state.get('_large_warn_hash') != st.session_state._df_users_hash:
-                st.warning(f"⚠️ Large dataset ({len(df)} rows) — pagination enabled, some grid features reduced for performance.")
-                st.session_state.shown_large_warn = True
-                st.session_state._large_warn_hash = st.session_state._df_users_hash
         else:
             gb.configure_grid_options(
                 rowSelection='multiple',

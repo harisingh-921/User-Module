@@ -142,15 +142,7 @@ def render_segregation_ui():
                         dup_new = st.session_state['segregation_dfs']['New Users']['_is_duplicate_user'].sum() if not st.session_state['segregation_dfs']['New Users'].empty else 0
                         m4.metric("Duplicates Flagged", dup_existing + dup_new)
                         
-                        st.markdown("### 📝 Interactive Editor")
-                        st.info("Select a dataset below to edit it in the grid. Your edits are saved locally as you type.")
-                        
-                        # Sync logic: Before we change the choice, save the current grid state back to the dict
-                        # This happens in app.py normally, but just to be safe, the toggle triggers a rerun.
-                        # Wait, the radio button itself triggers the rerun.
-                        # We will let app.py handle the synchronization logic so we don't drop edits.
-                        
-                        st.markdown("### **Select Dataset to Edit**")
+                        # Sync logic handled by app.py
                         
                         # Inject custom CSS to enlarge and bold the radio button options
                         st.markdown("""

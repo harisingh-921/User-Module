@@ -70,6 +70,16 @@ def _recalculate_duplicates() -> None:
         if '_is_duplicate_user' in df.columns:
             check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
             df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
+            
+        if '_is_duplicate_username' in df.columns:
+            if 'userName' in df.columns:
+                normalized_names = df['userName'].astype(str).str.strip().str.lower()
+                valid_names = normalized_names.replace(['', 'nan', 'none', '-', 'na', 'n/a'], pd.NA).dropna()
+                counts = valid_names.value_counts()
+                dups = counts[counts > 1].index
+                df['_is_duplicate_username'] = normalized_names.isin(dups)
+            else:
+                df['_is_duplicate_username'] = False
 
 def _update_users_hash() -> None:
     """Immediately updates _df_users_hash in SessionState based on current df_users."""

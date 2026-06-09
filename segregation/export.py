@@ -117,31 +117,40 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
     for df in [existing_users, new_users]:
         if '_is_duplicate_user' in df.columns:
             df.drop(columns=['_is_duplicate_user'], inplace=True)
+        if '_is_duplicate_username' in df.columns:
+            df.drop(columns=['_is_duplicate_username'], inplace=True)
         if '#' in df.columns:
             df.drop(columns=['#'], inplace=True)
         
     # Write to Excel
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-        if not existing_users.empty:
-            existing_users.to_excel(writer, sheet_name='Existing Users', index=False)
-        else:
-            pd.DataFrame([{'Message': 'No existing users found'}]).to_excel(writer, sheet_name='Existing Users', index=False)
-            
-        if not new_users.empty:
-            new_users.to_excel(writer, sheet_name='New Users', index=False)
-        else:
-            pd.DataFrame([{'Message': 'No new users found'}]).to_excel(writer, sheet_name='New Users', index=False)
-            
         # Formatting
         workbook = writer.book
         duplicate_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
+        header_format = workbook.add_format() # Plain format with no bold or borders
         
-        for sheet_name, df_sheet, dup_indices in [('Existing Users', existing_users, existing_dup_idx), ('New Users', new_users, new_dup_idx)]:
+        # Prepare datasets with fallback messages
+        sheets_data = [
+            ('Existing Users', existing_users if not existing_users.empty else pd.DataFrame([{'Message': 'No existing users found'}]), existing_dup_idx),
+            ('New Users', new_users if not new_users.empty else pd.DataFrame([{'Message': 'No new users found'}]), new_dup_idx)
+        ]
+        
+        for sheet_name, df_sheet, dup_indices in sheets_data:
             if df_sheet.empty or 'Message' in df_sheet.columns:
+                # If it's a message sheet, write normally
+                df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
                 continue
                 
+            # Write data without headers starting from row 1 (second row)
+            df_sheet.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=1)
             worksheet = writer.sheets[sheet_name]
-            worksheet.autofit()
+            
+            # Write plain headers manually
+            for col_num, value in enumerate(df_sheet.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+                
+            # Set all column widths to a fixed value (12 units)
+            worksheet.set_column(0, len(df_sheet.columns) - 1, 12)
             
             # Apply formatting directly to duplicate rows without needing a helper column
             if dup_indices:
