@@ -26,11 +26,29 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
 
-    chat_cmd = st.text_input(
-        "✨ Commands...",
-        placeholder="e.g. 'Map the departments column'",
-        key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
-    )
+    chat_cmd = ""
+    if st.session_state.ai_cmd_history:
+        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
+        selected_cmd = st.selectbox(
+            "✨ Select Command from History (or choose 'Type custom command...')",
+            options=["-- Type custom command --"] + unique_history,
+            key=f"ai_cmd_select_{st.session_state.chat_input_key}"
+        )
+        if selected_cmd == "-- Type custom command --":
+            chat_cmd = st.text_input(
+                "✍️ Custom Command...",
+                placeholder="e.g. 'Map the departments column'",
+                key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
+            )
+        else:
+            chat_cmd = selected_cmd
+            st.info(f"Selected: **{chat_cmd}**")
+    else:
+        chat_cmd = st.text_input(
+            "✨ Commands...",
+            placeholder="e.g. 'Map the departments column'",
+            key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
+        )
 
     if st.button("🪄 Apply AI"):
         if not chat_cmd:
@@ -89,60 +107,4 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
                 st.session_state._ai_preview = None
                 st.rerun()
 
-    # Inject native HTML datalist for autocomplete history inside st.text_input
-    if st.session_state.ai_cmd_history:
-        import json
-        import streamlit.components.v1 as components
-        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
-        history_json = json.dumps(unique_history)
-        
-        js_code = f"""
-        <script>
-            const parentDoc = window.parent.document;
-            const input = parentDoc.querySelector('input[placeholder^="e.g. \'Map"]');
-            if (input) {{
-                let datalist = parentDoc.getElementById('ai_commands_history');
-                if (!datalist) {{
-                    datalist = parentDoc.createElement('datalist');
-                    datalist.id = 'ai_commands_history';
-                    parentDoc.body.appendChild(datalist);
-                }}
-                datalist.innerHTML = '';
-                const history = {history_json};
-                history.forEach(item => {{
-                    const opt = parentDoc.createElement('option');
-                    opt.value = item;
-                    datalist.appendChild(opt);
-                }});
-                input.setAttribute('list', 'ai_commands_history');
-                input.setAttribute('autocomplete', 'off');
-                
-                // Show dropdown natively on click/focus
-                const triggerPicker = () => {{
-                    try {{
-                        if (typeof input.showPicker === 'function') {{
-                            input.showPicker();
-                        }}
-                    }} catch (e) {{
-                        console.log('showPicker not supported or blocked:', e);
-                    }}
-                }};
-                
-                // Remove previous listeners if any (to prevent multiple event registration)
-                if (input._focusHandler) input.removeEventListener('focus', input._focusHandler);
-                if (input._clickHandler) input.removeEventListener('click', input._clickHandler);
-                
-                input._focusHandler = triggerPicker;
-                input._clickHandler = triggerPicker;
-                
-                input.addEventListener('focus', triggerPicker);
-                input.addEventListener('click', triggerPicker);
-                
-                // If input is already active, trigger it immediately
-                if (parentDoc.activeElement === input) {{
-                    triggerPicker();
-                }}
-            }}
-        </script>
-        """
-        components.html(js_code, height=0, width=0)
+
