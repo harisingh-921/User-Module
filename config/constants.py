@@ -7,7 +7,7 @@ USER_MASTER_COLS = [
 
 SEMANTIC_MAPPINGS = {
     'userName': ['user name', 'username', 'login name', 'employee name', 'emp name', 'staff name'],
-    'employeeId': ['emp id', 'employee id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'staff id', 'user id', 'login id'],
+    'employeeId': ['emp id', 'employee id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'staff id', 'user id', 'login id', 'e_id', 'e id', 'eid'],
     'firstName': ['first name', 'fname', 'name 1'],
     'middleName': ['middle name', 'mname', 'mid name'],
     'lastName': ['last name', 'lname', 'surname', 'family name', 'name 2'],

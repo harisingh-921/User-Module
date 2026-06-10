@@ -130,7 +130,7 @@ def render_segregation_ui():
                             
                             st.write("Formatting results...")
                             from .export import format_segregation_results
-                            formatted_dfs = format_segregation_results(results_df)
+                            formatted_dfs = format_segregation_results(results_df, priority_mappings)
                             
                             # Store in session state for AgGrid editor
                             st.session_state['segregation_dfs'] = formatted_dfs

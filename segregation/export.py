@@ -2,7 +2,7 @@ import pandas as pd
 import io
 import datetime
 
-def format_segregation_results(client_df: pd.DataFrame) -> dict:
+def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list = None) -> dict:
     """
     Separates the client data into Existing and New users and formats them to the target template.
     Returns a dict with 'Existing Users' and 'New Users' dataframes.
@@ -15,6 +15,27 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
     def format_to_template(df: pd.DataFrame, is_new: bool = False) -> pd.DataFrame:
         if df.empty:
             return df
+            
+        # First, apply the explicit priority mappings from the UI selection if available
+        if priority_mappings:
+            for mapping in priority_mappings:
+                name = mapping.get('name')
+                c_col = mapping.get('client_col')
+                
+                target_col = None
+                if name == "Employee ID":
+                    target_col = "employeeId"
+                elif name == "Mail":
+                    target_col = "email"
+                elif name == "Mobile Number":
+                    target_col = "phone"
+                elif name == "Username":
+                    target_col = "userName"
+                    
+                if target_col and c_col in df.columns:
+                    from utils.common import has_value
+                    if df[c_col].apply(has_value).any():
+                        df[target_col] = df[c_col]
             
         # Fallbacks to capture incorrectly named columns from the client file
         fallbacks = SEMANTIC_MAPPINGS
