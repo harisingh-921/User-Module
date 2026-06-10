@@ -49,6 +49,32 @@ st.markdown("""
 from ui.sidebar import render_sidebar
 navigation = render_sidebar()
 
+# --- NAVIGATION SWITCH CONFIRMATION ---
+if "previous_nav" not in st.session_state:
+    st.session_state.previous_nav = navigation
+
+has_active_data = 'df_users' in st.session_state or 'segregation_dfs' in st.session_state
+
+if navigation != st.session_state.previous_nav:
+    if has_active_data:
+        st.warning(f"⚠️ **Warning**: You are switching from **{st.session_state.previous_nav}** to **{navigation}**. This will clear your current table and session data.")
+        col_yes, col_no = st.columns(2)
+        if col_yes.button("✅ Yes, Switch & Reset Data", type="primary", use_container_width=True):
+            # Clear all data keys
+            for key in ['df_users', 'segregation_dfs', 'segregation_view_choice', 'prev_segregation_view_choice', 'uploaded_files', '_df_users_hash', '_ai_preview']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.session_state.previous_nav = navigation
+            st.rerun()
+        if col_no.button("❌ No, Keep My Data", use_container_width=True):
+            # Revert the radio selection
+            st.session_state.nav_radio_key = st.session_state.previous_nav
+            st.rerun()
+        st.stop()
+    else:
+        # No data to lose, switch immediately
+        st.session_state.previous_nav = navigation
+
 # --- MAIN LOGIC ---
 srcs = None
 
