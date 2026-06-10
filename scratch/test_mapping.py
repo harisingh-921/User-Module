@@ -28,17 +28,33 @@ def format_to_template(df: pd.DataFrame, is_new: bool = False) -> pd.DataFrame:
     df = df.copy()
     fallbacks = SEMANTIC_MAPPINGS
     
+    # helper for checking empty
+    def is_empty_series(s):
+        # Check if the series has any non-empty value
+        def has_val(val):
+            if pd.isna(val):
+                return False
+            return str(val).strip().lower() not in ('', 'nan', 'none', '-', 'na', 'n/a')
+        return not s.apply(has_val).any()
+    
     for col in USER_MASTER_COLS:
-        if col not in df.columns:
+        is_empty_col = False
+        if col in df.columns:
+            if is_empty_series(df[col]):
+                is_empty_col = True
+                
+        if col not in df.columns or is_empty_col:
             found = False
             if col in fallbacks:
                 for fb in fallbacks[col]:
                     matching_cols = [c for c in df.columns if str(c).strip().lower() == fb]
                     if matching_cols:
-                        df[col] = df[matching_cols[0]]
-                        found = True
-                        break
-            if not found:
+                        candidate_col = matching_cols[0]
+                        if not is_empty_series(df[candidate_col]):
+                            df[col] = df[candidate_col]
+                            found = True
+                            break
+            if not found and col not in df.columns:
                 df[col] = ''
                 
     # Clean userName for new users: lowercase, no spaces, no special characters
@@ -67,15 +83,11 @@ def format_to_template(df: pd.DataFrame, is_new: bool = False) -> pd.DataFrame:
     final_cols = USER_MASTER_COLS.copy()
     return df[final_cols]
 
-# Simulate client file columns from the third screenshot
-# Let's say columns in the client file are:
-# "userName" containing "PARVESH KUMAR"
-# "User ID" or "employeeId" containing "PK-PAN-00014"
-# etc.
+# Simulate client file columns: no "User ID" column, just "Employee ID" (which maps to employeeId)
 test_df = pd.DataFrame([
     {
         "userName": "PARVESH KUMAR",
-        "employeeId": "PK-PAN-00014",
+        "Employee ID": "PK-PAN-00014",
         "password": "Paras@123",
         "departments": "ENGINEERING",
         "roles": "INCIDENT REPORTER",
@@ -88,3 +100,4 @@ print("Columns before format:", test_df.columns.tolist())
 formatted = format_to_template(test_df, is_new=True)
 print("Formatted dataframe:")
 print(formatted[["userName", "firstName", "lastName", "employeeId", "phone", "isEnabled"]].to_dict('records'))
+

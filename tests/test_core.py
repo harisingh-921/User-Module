@@ -41,16 +41,16 @@ def test_validate_master_data_missing_username():
 def test_validate_master_data_invalid_email_and_mobile():
     """Verify invalid email and mobile formatting returns warnings."""
     data = [
-        {"#": 1, "userName": "johndoe", "email": "invalid-email", "mobile": "short"},
-        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "mobile": "123"}
+        {"#": 1, "userName": "johndoe", "email": "invalid-email", "phone": "short"},
+        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "phone": "123"}
     ]
     df = pd.DataFrame(data)
     errors, warnings = validate_master_data(df)
     assert errors == []
     assert len(warnings) == 3
     assert any("Invalid **email** format ('invalid-email')" in w for w in warnings)
-    assert any("Invalid **mobile** format ('short')" in w for w in warnings)
-    assert any("Invalid **mobile** format ('123')" in w for w in warnings)
+    assert any("Invalid **phone** format ('short')" in w for w in warnings)
+    assert any("Invalid **phone** format ('123')" in w for w in warnings)
 
 def test_merge_duplicate_users_by_employee_id():
     """Verify rows with matching employeeId are merged and credentials generated."""

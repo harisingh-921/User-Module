@@ -18,19 +18,27 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
             
         # Fallbacks to capture incorrectly named columns from the client file
         fallbacks = SEMANTIC_MAPPINGS
+        from utils.common import has_value
         
         for col in USER_MASTER_COLS:
-            if col not in df.columns:
+            is_empty_col = False
+            if col in df.columns:
+                if not df[col].apply(has_value).any():
+                    is_empty_col = True
+                    
+            if col not in df.columns or is_empty_col:
                 found = False
                 if col in fallbacks:
                     for fb in fallbacks[col]:
                         # Case insensitive match for fallback columns
                         matching_cols = [c for c in df.columns if str(c).strip().lower() == fb]
                         if matching_cols:
-                            df[col] = df[matching_cols[0]]
-                            found = True
-                            break
-                if not found:
+                            candidate_col = matching_cols[0]
+                            if df[candidate_col].apply(has_value).any():
+                                df[col] = df[candidate_col]
+                                found = True
+                                break
+                if not found and col not in df.columns:
                     df[col] = ''
                     
         # Intelligent Merge for Existing Users
@@ -87,6 +95,7 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
                     full_name = "".join(parts)
                     uname = full_name
                 cleaned = re.sub(r'[^a-zA-Z0-9]', '', uname).lower()
+                return cleaned
             df['userName'] = df.apply(clean_new_username, axis=1)
 
         # Default isEnabled to 'Yes' for new users if blank
