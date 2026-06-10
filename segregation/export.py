@@ -12,7 +12,7 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
     
     from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
     
-    def format_to_template(df: pd.DataFrame) -> pd.DataFrame:
+    def format_to_template(df: pd.DataFrame, is_new: bool = False) -> pd.DataFrame:
         if df.empty:
             return df
             
@@ -71,6 +71,30 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
                         return c_val if pd.notna(c_val) else ''
                     df[col] = df.apply(merge_general, axis=1)
                     
+        # Clean userName for new users: lowercase, no spaces, no special characters
+        if is_new and 'userName' in df.columns:
+            import re
+            def clean_new_username(row):
+                uname = str(row.get('userName', '')).strip()
+                if pd.isna(row.get('userName', '')) or uname.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                    fn = str(row.get('firstName', '')).strip()
+                    mn = str(row.get('middleName', '')).strip()
+                    ln = str(row.get('lastName', '')).strip()
+                    parts = []
+                    for name_part in [fn, mn, ln]:
+                        if pd.notna(name_part) and name_part.lower() not in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                            parts.append(name_part)
+                    full_name = "".join(parts)
+                    uname = full_name
+                cleaned = re.sub(r'[^a-zA-Z0-9]', '', uname).lower()
+            df['userName'] = df.apply(clean_new_username, axis=1)
+
+        # Default isEnabled to 'Yes' for new users if blank
+        if is_new and 'isEnabled' in df.columns:
+            df['isEnabled'] = df['isEnabled'].apply(
+                lambda x: 'Yes' if pd.isna(x) or str(x).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a') else x
+            )
+
         # Keep exactly the target columns
         final_cols = USER_MASTER_COLS.copy()
         
@@ -92,8 +116,8 @@ def format_segregation_results(client_df: pd.DataFrame) -> dict:
         return df_final
         
     return {
-        'Existing Users': format_to_template(existing_users),
-        'New Users': format_to_template(new_users)
+        'Existing Users': format_to_template(existing_users, is_new=False),
+        'New Users': format_to_template(new_users, is_new=True)
     }
 
 def generate_segregation_workbook(dfs: dict) -> bytes:

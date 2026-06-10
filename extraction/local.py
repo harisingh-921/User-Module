@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
 from extraction.merge import _merge_duplicate_users
+from utils.common import is_empty_value, has_value
 
 def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent=""):
     """
@@ -72,7 +73,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             for c_idx, val in enumerate(row_vals):
                 if val.lower() == 'unit name' and c_idx + 1 < len(row_vals):
                     candidate = row_vals[c_idx + 1]
-                    if candidate and candidate.lower() not in ('nan', 'none', '-'):
+                    if has_value(candidate):
                         global_unit = candidate
                         break
             if global_unit:
@@ -115,7 +116,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     for alias in SEMANTIC_MAPPINGS[target_field]:
                         for src_col, src_lower in headers_lower_temp.items():
                             if src_col in col_mapping_temp: continue
-                            if alias in src_lower or src_lower in alias:
+                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
                                 col_mapping_temp[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping_temp.values()):
@@ -129,7 +130,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         'userName': ['user name', 'username'],
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
-                        'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                        'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
                     }
                     if target_field in broad_keywords:
                         for kw in broad_keywords[target_field]:
@@ -155,10 +156,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 if target_field in ['firstName', 'lastName', '_fullName', 'employeeId', 'email']:
                     col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
                     val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
-                    if val and val not in ('nan', 'none', '-'):
+                    if has_value(val):
                         name_email_empty = False
                         break
-            text_cells = sum(1 for v in next_row.values if str(v).strip() and str(v).strip().lower() not in ('nan', 'none', '-'))
+            text_cells = sum(1 for v in next_row.values if has_value(v))
             if name_email_empty and text_cells >= 2:
                 is_sub_header = True
  
@@ -170,7 +171,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             last_parent = ""
             for p in parent_headers:
                 p_str = str(p).strip()
-                if p_str and p_str.lower() not in ('nan', 'none', '-'):
+                if has_value(p_str):
                     last_parent = p_str
                 filled_parents.append(last_parent)
  
@@ -178,8 +179,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 parent_h = filled_parents[c_idx]
                 child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
                 
-                parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
-                child_clean = "" if child_h.lower() in ('nan', 'none', '-') else child_h
+                parent_clean = "" if is_empty_value(parent_h) else parent_h
+                child_clean = "" if is_empty_value(child_h) else child_h
                 
                 if parent_clean and child_clean:
                     if parent_clean.lower() == child_clean.lower():
@@ -258,7 +259,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         for src_col, src_lower in headers_lower.items():
                             if src_col in col_mapping:
                                 continue
-                            if alias in src_lower:
+                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
                                 col_mapping[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping.values()):
@@ -273,7 +274,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         'userName': ['user name', 'username'],
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
-                        'mobile': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                        'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
                     }
                     if target_field in broad_keywords:
                         for kw in broad_keywords[target_field]:
@@ -349,7 +350,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             # Running role mapping
             if roles_col_name:
                 rv = str(row.get(roles_col_name, '')).strip()
-                if rv and rv.lower() not in ('nan', 'none', '-'):
+                if has_value(rv):
                     last_role_val = rv
             
             if last_role_val:
@@ -357,7 +358,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             
             for src_col, target_field in col_mapping.items():
                 val = str(row.get(src_col, '')).strip()
-                if val.lower() in ('nan', 'none', '-'):
+                if is_empty_value(val):
                     val = ''
                 
                 if target_field == '_fullName':
@@ -413,7 +414,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                             user['employeeId'] = match.group(2).strip()
 
             # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
-            identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'mobile']
+            identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'phone']
             max_parts = 1
             for f in identity_fields:
                 val = user.get(f, '')

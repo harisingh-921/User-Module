@@ -1,5 +1,6 @@
 # user_masters/validation/validator.py
 import pandas as pd
+from utils.common import _EMPTY_STRINGS
 
 def validate_master_data(df: pd.DataFrame):
     """
@@ -21,7 +22,7 @@ def validate_master_data(df: pd.DataFrame):
     # 1. Vectorized Mandatory Check (userName)
     # Identifies rows where userName is null, empty, or placeholder strings
     unames = df['userName'].astype(str).str.strip().str.lower()
-    mask_missing_uname = (unames == '') | (unames == 'nan') | (unames == 'none') | (unames == '-')
+    mask_missing_uname = unames.isin(_EMPTY_STRINGS)
     
     if mask_missing_uname.any():
         bad_indices = df[mask_missing_uname]['#'].tolist()
@@ -32,7 +33,7 @@ def validate_master_data(df: pd.DataFrame):
     if 'email' in df.columns:
         emails = df['email'].astype(str).str.strip()
         # Create mask for rows that ARE NOT empty but DO NOT match regex
-        has_email = (emails != '') & (emails != 'nan') & (emails != 'none') & (emails != '-')
+        has_email = ~emails.str.lower().isin(_EMPTY_STRINGS)
         invalid_email = has_email & (~emails.str.match(email_regex, na=False))
         
         if invalid_email.any():
@@ -40,15 +41,16 @@ def validate_master_data(df: pd.DataFrame):
             for b_id, b_val in bad_rows:
                 warnings.append(f"Row {b_id}: Invalid **email** format ('{b_val}')")
 
-    # 3. Vectorized Mobile Check (Only for non-empty values)
-    if 'mobile' in df.columns:
-        mobiles = df['mobile'].astype(str).str.strip()
-        has_mobile = (mobiles != '') & (mobiles != 'nan') & (mobiles != 'none') & (mobiles != '-')
+    # 3. Vectorized Phone Check (Only for non-empty values)
+    if 'phone' in df.columns:
+        mobiles = df['phone'].astype(str).str.strip()
+        has_mobile = ~mobiles.str.lower().isin(_EMPTY_STRINGS)
         invalid_mobile = has_mobile & (~mobiles.str.match(mobile_regex, na=False))
         
         if invalid_mobile.any():
-            bad_rows = df[invalid_mobile][['#', 'mobile']].values
+            bad_rows = df[invalid_mobile][['#', 'phone']].values
             for b_id, b_val in bad_rows:
-                warnings.append(f"Row {b_id}: Invalid **mobile** format ('{b_val}')")
+                warnings.append(f"Row {b_id}: Invalid **phone** format ('{b_val}')")
 
     return errors, warnings
+

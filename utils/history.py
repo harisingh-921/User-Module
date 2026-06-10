@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import numpy as np
+from utils.common import clean_empty_series
 
 # Configurable guardrails
 _UNDO_LIMIT        = 30    # max history depth
@@ -74,7 +75,7 @@ def _recalculate_duplicates() -> None:
         if '_is_duplicate_username' in df.columns:
             if 'userName' in df.columns:
                 normalized_names = df['userName'].astype(str).str.strip().str.lower()
-                valid_names = normalized_names.replace(['', 'nan', 'none', '-', 'na', 'n/a'], pd.NA).dropna()
+                valid_names = clean_empty_series(normalized_names).dropna()
                 counts = valid_names.value_counts()
                 dups = counts[counts > 1].index
                 df['_is_duplicate_username'] = normalized_names.isin(dups)

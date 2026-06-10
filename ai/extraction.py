@@ -28,6 +28,7 @@ from config.constants import USER_MASTER_COLS
 from models.schemas import UserMasterResult
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import get_all_api_keys, find_matching_excel_roles
+from utils.common import is_empty_value, has_value
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ _AI_RETRY_ATTEMPTS  = 3       # Transient error retries for apply_ai_smart_conte
 _AI_RETRY_BASE_WAIT = 2       # Base seconds for exponential backoff
 # Columns the AI is permitted to modify via apply_ai_smart_context
 _AI_ALLOWED_EDIT_COLS = {
-    'firstName', 'middleName', 'lastName', 'userName', 'email', 'mobile',
+    'firstName', 'middleName', 'lastName', 'userName', 'email', 'phone',
     'employeeId', 'departments', 'roles', 'units', 'designation',
     'isEnabled', 'password',
 }
@@ -315,7 +316,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             }.get(target_field, [])
                             for alias in aliases:
                                 for src_col, src_lower in headers_lower_temp.items():
-                                    if alias in src_lower:
+                                    if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
                                         col_mapping_temp[src_col] = target_field
                                         break
                                 if target_field in col_mapping_temp.values():
@@ -324,11 +325,11 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     for src_col, target_field in col_mapping_temp.items():
                         col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
                         val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
-                        if val and val not in ('nan', 'none', '-'):
+                        if has_value(val):
                             name_email_empty = False
                             break
                     
-                    text_cells = sum(1 for v in next_row.values if str(v).strip() and str(v).strip().lower() not in ('nan', 'none', '-'))
+                    text_cells = sum(1 for v in next_row.values if has_value(v))
                     if name_email_empty and text_cells >= 2:
                         is_sub_header = True
 
@@ -350,7 +351,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     last_parent = ""
                     for p in parent_headers:
                         p_str = str(p).strip()
-                        if p_str and p_str.lower() not in ('nan', 'none', '-'):
+                        if has_value(p_str):
                             last_parent = p_str
                         filled_parents.append(last_parent)
 
@@ -358,8 +359,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                         parent_h = filled_parents[c_idx]
                         child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
                         
-                        parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
-                        child_clean = "" if child_h.lower() in ('nan', 'none', '-') else child_h
+                        parent_clean = "" if is_empty_value(parent_h) else parent_h
+                        child_clean = "" if is_empty_value(child_h) else child_h
                         
                         if parent_clean and child_clean:
                             if parent_clean.lower() == child_clean.lower():
@@ -438,7 +439,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     for v in row.values:
                         if pd.notna(v):
                             v_str = str(v).strip().lower()
-                            if v_str not in ('nan', 'none', '', '-'):
+                            if has_value(v_str):
                                 raw_vals.append(v_str)
                     
                     global_excel_rows_data.append({
@@ -466,7 +467,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     line = row_to_str(row)
                     if not line.strip(): continue
                     col_a_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
-                    if col_a_val.lower() not in ('nan', 'none', '', '-'):
+                    if has_value(col_a_val):
                         last_col_a_value = col_a_val
                     tag = f"[SHEET: {sheet_name}]"
                     if is_floating_role_section and last_col_a_value:
@@ -692,23 +693,27 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     # Context size guard: truncate rows if JSON would be too large
     context_data_df = df
     context_json = context_data_df.to_json(orient='records')
+    _is_truncated = False
     if len(context_json) > _MAX_AI_CONTEXT_KB * 1024:
         # Send only first 200 rows for initial context evaluation
         context_data_df = df.head(200)
         context_json = context_data_df.to_json(orient='records')
+        _is_truncated = True
         
     mapping_prompt = ""
     if context_df is not None and not context_df.empty:
         mapping_prompt = f"\n\nEXTERNAL MAPPING DATA (UPLOADED FILE) COLUMNS: {list(context_df.columns)}\n"
 
-    prompt = f"""
+    def _build_prompt(data_json):
+        """Build a complete AI prompt for a given chunk of data JSON."""
+        return f"""
     You are a User Master Data Expert. The user wants to modify the following staff list.
 
     USER COMMAND: {command}
     {mapping_prompt}
 
     CURRENT DATA (JSON):
-    {context_json}
+    {data_json}
 
     INSTRUCTIONS:
     1. Understand the user's request.
@@ -725,6 +730,8 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     Replace: {{"replace_intent": {{"target_col": "roles", "search_text": "INCIDENT REPORTER", "replace_text": "Incident Reporter"}}}}
     Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
     """
+
+    prompt = _build_prompt(context_json)
 
     last_error = "Unknown error"
     for attempt in range(_AI_RETRY_ATTEMPTS):
@@ -748,6 +755,8 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             res_data = json.loads(raw_res)
 
             # Programmatic Mapping Mode
+            # NOTE: mapping_intent and replace_intent operate on the FULL df via
+            # Pandas, so truncation is safe — AI only needs to identify the intent.
             if "mapping_intent" in res_data and context_df is not None:
                 intent = res_data["mapping_intent"]
                 target_col = intent.get("target_col")
@@ -809,31 +818,34 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             new_df = df.copy()
             affected = 0
             blocked_fields = set()
-            
-            # (Safety guard removed to allow intentional bulk-edits across 100% of rows)
+
+            def _apply_updates(update_list, source_df):
+                """Apply a list of AI updates to new_df. Returns count of cells changed."""
+                nonlocal affected
+                row_map = {str(r.get('#', '')): idx for idx, r in source_df.iterrows()}
+                for update in update_list:
+                    row_serial = str(update.get('#', ''))
+                    if row_serial and row_serial in row_map:
+                        row_idx = row_map[row_serial]
+                        for k, v in update.items():
+                            if k == '#' or k == '::action': continue
+                            if k in _AI_ALLOWED_EDIT_COLS:
+                                if new_df.at[row_idx, k] != v:
+                                    new_df.at[row_idx, k] = v
+                                    affected += 1
+                            else:
+                                blocked_fields.add(k)
 
             # Process first chunk updates
-            row_map = {str(r.get('#', '')): idx for idx, r in context_data_df.iterrows()}
-            for update in updates:
-                row_serial = str(update.get('#', ''))
-                if row_serial and row_serial in row_map:
-                    row_idx = row_map[row_serial]
-                    for k, v in update.items():
-                        if k == '#' or k == '::action': continue
-                        if k in _AI_ALLOWED_EDIT_COLS:
-                            if new_df.at[row_idx, k] != v:
-                                new_df.at[row_idx, k] = v
-                                affected += 1
-                        else:
-                            blocked_fields.add(k)
+            _apply_updates(updates, context_data_df)
                             
-            # Process remaining chunks if dataset > 200 rows and we didn't do programmatic mapping
-            if len(df) > 200:
+            # Process remaining chunks if dataset was truncated
+            if _is_truncated and len(df) > len(context_data_df):
                 import concurrent.futures
                 
                 def _process_chunk(chunk_df):
                     c_json = chunk_df.to_json(orient='records')
-                    c_prompt = prompt.replace(context_json, c_json)
+                    c_prompt = _build_prompt(c_json)
                     try:
                         c_comp = client.chat.completions.create(
                             model=model,
@@ -849,24 +861,15 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     except Exception:
                         return []
                         
-                chunks = [df.iloc[i:i+200] for i in range(200, len(df), 200)]
+                chunk_size = len(context_data_df)
+                chunks = [df.iloc[i:i+chunk_size] for i in range(chunk_size, len(df), chunk_size)]
                 with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                     futures = {executor.submit(_process_chunk, c): c for c in chunks}
                     for future in concurrent.futures.as_completed(futures):
                         c_df = futures[future]
                         c_updates = future.result()
                         if isinstance(c_updates, list):
-                            c_row_map = {str(r.get('#', '')): idx for idx, r in c_df.iterrows()}
-                            for update in c_updates:
-                                r_serial = str(update.get('#', ''))
-                                if r_serial and r_serial in c_row_map:
-                                    r_idx = c_row_map[r_serial]
-                                    for k, v in update.items():
-                                        if k == '#' or k == '::action': continue
-                                        if k in _AI_ALLOWED_EDIT_COLS:
-                                            if new_df.at[r_idx, k] != v:
-                                                new_df.at[r_idx, k] = v
-                                                affected += 1
+                            _apply_updates(c_updates, c_df)
 
             summary = f"AI applied changes to {len(df)} row(s) ({affected} cell update(s))."
             if blocked_fields:
