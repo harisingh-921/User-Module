@@ -26,20 +26,6 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
 
-    def on_history_change():
-        selected = st.session_state.get(f"history_dropdown_{st.session_state.chat_input_key}")
-        if selected and selected != "-- Select from Command History --":
-            st.session_state[f"ai_chat_cmd_{st.session_state.chat_input_key}"] = selected
-
-    if st.session_state.ai_cmd_history:
-        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
-        st.selectbox(
-            "🕒 Command History (Autofills input below)",
-            options=["-- Select from Command History --"] + unique_history,
-            key=f"history_dropdown_{st.session_state.chat_input_key}",
-            on_change=on_history_change
-        )
-
     chat_cmd = st.text_input(
         "✨ Commands...",
         placeholder="e.g. 'Map the departments column'",
@@ -102,3 +88,35 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
             if pc2.button("❌ Cancel", width="stretch"):
                 st.session_state._ai_preview = None
                 st.rerun()
+
+    # Inject native HTML datalist for autocomplete history inside st.text_input
+    if st.session_state.ai_cmd_history:
+        import json
+        import streamlit.components.v1 as components
+        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
+        history_json = json.dumps(unique_history)
+        
+        js_code = f"""
+        <script>
+            const parentDoc = window.parent.document;
+            const input = parentDoc.querySelector('input[placeholder^="e.g. \'Map"]');
+            if (input) {{
+                let datalist = parentDoc.getElementById('ai_commands_history');
+                if (!datalist) {{
+                    datalist = parentDoc.createElement('datalist');
+                    datalist.id = 'ai_commands_history';
+                    parentDoc.body.appendChild(datalist);
+                }}
+                datalist.innerHTML = '';
+                const history = {history_json};
+                history.forEach(item => {{
+                    const opt = parentDoc.createElement('option');
+                    opt.value = item;
+                    datalist.appendChild(opt);
+                }});
+                input.setAttribute('list', 'ai_commands_history');
+                input.setAttribute('autocomplete', 'off');
+            }}
+        </script>
+        """
+        components.html(js_code, height=0, width=0)
