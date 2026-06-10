@@ -116,6 +116,32 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
                 }});
                 input.setAttribute('list', 'ai_commands_history');
                 input.setAttribute('autocomplete', 'off');
+                
+                // Show dropdown natively on click/focus
+                const triggerPicker = () => {{
+                    try {{
+                        if (typeof input.showPicker === 'function') {{
+                            input.showPicker();
+                        }}
+                    }} catch (e) {{
+                        console.log('showPicker not supported or blocked:', e);
+                    }}
+                }};
+                
+                // Remove previous listeners if any (to prevent multiple event registration)
+                if (input._focusHandler) input.removeEventListener('focus', input._focusHandler);
+                if (input._clickHandler) input.removeEventListener('click', input._clickHandler);
+                
+                input._focusHandler = triggerPicker;
+                input._clickHandler = triggerPicker;
+                
+                input.addEventListener('focus', triggerPicker);
+                input.addEventListener('click', triggerPicker);
+                
+                // If input is already active, trigger it immediately
+                if (parentDoc.activeElement === input) {{
+                    triggerPicker();
+                }}
             }}
         </script>
         """
