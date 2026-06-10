@@ -26,16 +26,25 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
 
+    def on_history_change():
+        selected = st.session_state.get(f"history_dropdown_{st.session_state.chat_input_key}")
+        if selected and selected != "-- Select from Command History --":
+            st.session_state[f"ai_chat_cmd_{st.session_state.chat_input_key}"] = selected
+
+    if st.session_state.ai_cmd_history:
+        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
+        st.selectbox(
+            "🕒 Command History (Autofills input below)",
+            options=["-- Select from Command History --"] + unique_history,
+            key=f"history_dropdown_{st.session_state.chat_input_key}",
+            on_change=on_history_change
+        )
+
     chat_cmd = st.text_input(
         "✨ Commands...",
         placeholder="e.g. 'Map the departments column'",
         key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
     )
-
-    if st.session_state.ai_cmd_history:
-        with st.expander(f"🕒 Command History ({len(st.session_state.ai_cmd_history)})", expanded=False):
-            for hc in st.session_state.ai_cmd_history:
-                st.markdown(f"- `{hc}`")
 
     if st.button("🪄 Apply AI"):
         if not chat_cmd:
