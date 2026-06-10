@@ -82,9 +82,13 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                         if m_role.lower() == 'nan': m_role = ''
                         if c_role.lower() == 'nan': c_role = ''
                         
+                        # Clean spaces around '|' inside individual roles first
+                        m_role = "|".join([r.strip() for r in m_role.split('|') if r.strip()])
+                        c_role = "|".join([r.strip() for r in c_role.split('|') if r.strip()])
+                        
                         if m_role and c_role and m_role.lower() != c_role.lower():
                             if c_role.lower() not in m_role.lower():
-                                return f"{m_role} | {c_role}"
+                                return f"{m_role}|{c_role}"
                             return m_role
                         elif m_role:
                             return m_role
@@ -124,6 +128,17 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
             df['isEnabled'] = df['isEnabled'].apply(
                 lambda x: 'Yes' if pd.isna(x) or str(x).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a') else x
             )
+
+        # Clean spaces around '|' in roles column for all users
+        if 'roles' in df.columns:
+            def clean_roles_spaces(val):
+                if pd.isna(val):
+                    return ''
+                val_str = str(val).strip()
+                if val_str.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                    return ''
+                return "|".join([r.strip() for r in val_str.split('|') if r.strip()])
+            df['roles'] = df['roles'].apply(clean_roles_spaces)
 
         # Keep exactly the target columns
         final_cols = USER_MASTER_COLS.copy()

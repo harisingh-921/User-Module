@@ -52,6 +52,18 @@ def test_validate_master_data_invalid_email_and_mobile():
     assert any("Invalid **phone** format ('short')" in w for w in warnings)
     assert any("Invalid **phone** format ('123')" in w for w in warnings)
 
+def test_validate_master_data_invalid_roles_spaces():
+    """Verify spaces around '|' in roles return validation errors."""
+    data = [
+        {"#": 1, "userName": "johndoe", "roles": "Admin | Doctor"},
+        {"#": 2, "userName": "janesmith", "roles": "Nurse| Admin"},
+        {"#": 3, "userName": "bobross", "roles": "Artist |Painter"}
+    ]
+    df = pd.DataFrame(data)
+    errors, warnings = validate_master_data(df)
+    assert len(errors) == 3
+    assert any("roles** contains invalid spaces around '|'" in err for err in errors)
+
 def test_merge_duplicate_users_by_employee_id():
     """Verify rows with matching employeeId are merged and credentials generated."""
     data = [

@@ -52,5 +52,17 @@ def validate_master_data(df: pd.DataFrame):
             for b_id, b_val in bad_rows:
                 warnings.append(f"Row {b_id}: Invalid **phone** format ('{b_val}')")
 
+    # 4. Vectorized Roles Check (Verify no spaces around '|')
+    if 'roles' in df.columns:
+        roles_col = df['roles'].astype(str)
+        has_spaces_around_pipe = roles_col.str.contains(r'\s*\|\s+', regex=True) | roles_col.str.contains(r'\s+\|\s*', regex=True)
+        has_roles = ~roles_col.str.lower().isin(_EMPTY_STRINGS)
+        invalid_roles = has_roles & has_spaces_around_pipe
+        
+        if invalid_roles.any():
+            bad_rows = df[invalid_roles][['#', 'roles']].values
+            for b_id, b_val in bad_rows:
+                errors.append(f"Row {b_id}: **roles** contains invalid spaces around '|' ('{b_val}')")
+
     return errors, warnings
 
