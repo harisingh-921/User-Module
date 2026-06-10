@@ -218,8 +218,11 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
             for col_num, value in enumerate(df_sheet.columns.values):
                 worksheet.write(0, col_num, value, header_format)
                 
-            # Set all column widths to a fixed value (12 units)
-            worksheet.set_column(0, len(df_sheet.columns) - 1, 12)
+            # Create a text format for the cells
+            text_format = workbook.add_format({'num_format': '@'})
+            
+            # Set all column widths to a fixed value (12 units) and apply Text format
+            worksheet.set_column(0, len(df_sheet.columns) - 1, 12, text_format)
             
             # Apply formatting directly to duplicate rows without needing a helper column
             if dup_indices:

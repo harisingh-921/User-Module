@@ -346,13 +346,15 @@ def _render_download(df, grid_response, navigation):
             with pd.ExcelWriter(_buf, engine='xlsxwriter') as _writer:
                 _export_df.to_excel(_writer, index=False, sheet_name='Users')
                 _worksheet = _writer.sheets['Users']
+                _workbook = _writer.book
+                _text_format = _workbook.add_format({'num_format': '@'})
                 for _i, _col in enumerate(_export_df.columns):
                     _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]
                     _max_len = max(
                         max(_col_str_lengths) if _col_str_lengths else 0,
                         len(str(_col))
                     ) + 2
-                    _worksheet.set_column(_i, _i, min(_max_len, 50))
+                    _worksheet.set_column(_i, _i, min(_max_len, 50), _text_format)
 
             st.session_state._excel_cache = {_export_hash_key: _buf.getvalue()}
 
