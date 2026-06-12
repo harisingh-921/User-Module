@@ -43,7 +43,7 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     """Create and return AgGrid GridOptionsBuilder."""
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(
-        editable=True, filter='agTextColumnFilter', resizable=True, sortable=True, width=250, minWidth=100
+        editable=True, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
     )
     # '#' always pinned left
     gb.configure_column("#", headerName="#", width=80, pinned='left', editable=False,
@@ -55,6 +55,8 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     for col in user_cols:
         if col not in visible_cols:
             gb.configure_column(col, hide=True)
+        elif col in ["thirdPartyUsername", "passwordPolicy", "lastWorkingDate", "dateOfJoining", "shiftDuration"]:
+            gb.configure_column(col, minWidth=180)
         elif col == "userName":
             gb.configure_column(col, cellStyle=JsCode("""
                 function(params) {
