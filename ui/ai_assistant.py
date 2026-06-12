@@ -29,6 +29,11 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
     # Ensure text input is ALWAYS rendered first
     chat_input_key = f"ai_chat_cmd_{st.session_state.chat_input_key}"
 
+    # If a history pill was clicked, copy it to the text input state before the widget is instantiated
+    if st.session_state.get("selected_history_cmd"):
+        st.session_state[chat_input_key] = st.session_state["selected_history_cmd"]
+        st.session_state["selected_history_cmd"] = None
+
     chat_cmd = st.text_input(
         "✍️ Command / Changes to make",
         placeholder="e.g. 'Map the departments column' or 'Set isEnabled to Yes for all'",
@@ -53,7 +58,7 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
                 if len(label) > 35:
                     label = label[:32] + "..."
                 if cols[idx].button(f"💬 {label}", key=f"hist_btn_{i+idx}_{st.session_state.chat_input_key}", help=cmd, use_container_width=True):
-                    st.session_state[chat_input_key] = cmd
+                    st.session_state["selected_history_cmd"] = cmd
                     st.rerun()
 
     if st.button("🪄 Apply AI"):
