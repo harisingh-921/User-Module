@@ -773,9 +773,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                         old_val = str(row.get(target_col, '')).strip()
                         if old_val.lower() in lookup_dict:
                             new_val = lookup_dict[old_val.lower()]
-                            if new_val != row.get(target_col):
-                                new_df.at[i, target_col] = new_val
-                                affected += 1
+                            # If mapped value is empty/NaN, keep the original value untouched
+                            if pd.notna(new_val) and str(new_val).strip() != '' and str(new_val).strip().lower() not in ('nan', 'none', '-', 'na', 'n/a'):
+                                if new_val != row.get(target_col):
+                                    new_df.at[i, target_col] = new_val
+                                    affected += 1
                     
                     summary = f"AI programmatically mapped {affected} row(s) in column '{target_col}' using '{lookup_col}' -> '{value_col}'."
                     return new_df, summary
