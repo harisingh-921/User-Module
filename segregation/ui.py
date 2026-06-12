@@ -136,6 +136,9 @@ def render_segregation_ui():
                             st.session_state['segregation_dfs'] = formatted_dfs
                             # Default choice
                             st.session_state['segregation_view_choice'] = 'Existing Users'
+                            # Force app.py to reload the new dataframe instead of using the cached one
+                            if 'prev_segregation_view_choice' in st.session_state:
+                                del st.session_state['prev_segregation_view_choice']
                             
                             status.update(label="✅ Processing Complete!", state="complete")
                             
