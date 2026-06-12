@@ -296,10 +296,22 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     merged_df = pd.DataFrame(fuzzy_merged_rows).reset_index(drop=True)
     # ─────────────────────────────────────────────────────────────────────────
     
-    # Preserve 100% of the original Excel sheet row order
-    if '_original_order' in merged_df.columns:
-        merged_df = merged_df.sort_values('_original_order').reset_index(drop=True)
-        merged_df = merged_df.drop(columns=['_original_order'])
-        
+    # Default isEnabled to 'Yes' for all users if blank or missing
+    if 'isEnabled' not in merged_df.columns:
+        merged_df['isEnabled'] = 'Yes'
+    else:
+        def clean_enabled(x):
+            if pd.isna(x):
+                return 'Yes'
+            s = str(x).strip().lower()
+            if s in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                return 'Yes'
+            if s in ('y', 'yes', 'true', '1', 'active', 'enabled'):
+                return 'Yes'
+            if s in ('n', 'no', 'false', '0', 'inactive', 'disabled'):
+                return 'No'
+            return x
+        merged_df['isEnabled'] = merged_df['isEnabled'].apply(clean_enabled)
+
     return merged_df
 
