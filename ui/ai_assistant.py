@@ -40,26 +40,42 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         key=chat_input_key
     )
 
-    # Render clean, clickable suggestion pills for 5-10 recent history items
+    # Inject HTML5 datalist to show history as native browser dropdown suggestions on input focus
     if st.session_state.ai_cmd_history:
-        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:8]
-        st.markdown(
-            "<div style='font-size:12px; font-weight:600; color:#64748b; margin-top:-8px; margin-bottom:4px;'>🕒 RECENT COMMANDS (click to fill):</div>",
-            unsafe_allow_html=True
-        )
+        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
+        options_html = "".join([f'<option value="{cmd}">' for cmd in unique_history])
         
-        # Display as a grid of 4 columns per row
-        cols_per_row = 4
-        for i in range(0, len(unique_history), cols_per_row):
-            chunk = unique_history[i:i+cols_per_row]
-            cols = st.columns(cols_per_row)
-            for idx, cmd in enumerate(chunk):
-                label = cmd
-                if len(label) > 35:
-                    label = label[:32] + "..."
-                if cols[idx].button(f"💬 {label}", key=f"hist_btn_{i+idx}_{st.session_state.chat_input_key}", help=cmd, use_container_width=True):
-                    st.session_state["selected_history_cmd"] = cmd
-                    st.rerun()
+        datalist_html = f"""
+        <script>
+            const parentDoc = window.parent.document;
+            
+            function attachDatalist() {{
+                const inputs = parentDoc.querySelectorAll('input[type="text"]');
+                for (const input of inputs) {{
+                    if (input.placeholder && input.placeholder.includes("Map the departments column")) {{
+                        input.setAttribute("list", "ai-cmd-history-list");
+                        input.setAttribute("autocomplete", "on");
+                        
+                        // Create or update datalist
+                        let dl = parentDoc.getElementById("ai-cmd-history-list");
+                        if (!dl) {{
+                            dl = parentDoc.createElement("datalist");
+                            dl.id = "ai-cmd-history-list";
+                            parentDoc.body.appendChild(dl);
+                        }}
+                        dl.innerHTML = `{options_html}`;
+                        break;
+                    }}
+                }}
+            }}
+            
+            attachDatalist();
+            setTimeout(attachDatalist, 300);
+            setTimeout(attachDatalist, 800);
+        </script>
+        """
+        import streamlit.components.v1 as components
+        components.html(datalist_html, height=0, width=0)
 
     if st.button("🪄 Apply AI"):
         if not chat_cmd:
