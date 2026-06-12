@@ -152,3 +152,24 @@ def test_segregation_password_prefix():
     
     # Check new user with empty password got SegPrefix@EMP103
     assert new_df.loc[new_df['userName'] == 'newuser2', 'password'].values[0] == 'SegPrefix@EMP103'
+
+def test_merge_preserves_provided_credentials():
+    """Verify that _merge_duplicate_users preserves client-provided userName and password."""
+    data = [
+        {
+            "employeeId": "EMP201",
+            "firstName": "John",
+            "lastName": "Doe",
+            "userName": "johndoe_custom",
+            "password": "CustomPassword123",
+            "roles": "Admin"
+        }
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df, pass_prefix="TestPass")
+    
+    assert len(merged_df) == 1
+    user = merged_df.iloc[0]
+    assert user["userName"] == "johndoecustom"
+    assert user["password"] == "CustomPassword123"
+    assert user["isEnabled"] == "Yes"

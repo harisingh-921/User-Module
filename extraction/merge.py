@@ -142,8 +142,14 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     merged_df = pd.DataFrame(result_rows).reset_index(drop=True)
     merged_df = merged_df.drop(columns=['_group_key'], errors='ignore')
     
-    # Programmatic userName construction: join first+middle+last and keep ONLY letters
+    # Programmatic userName construction: use client username if present, otherwise construct from names
     def construct_username(row):
+        uname = str(row.get('userName', '')).strip()
+        if has_value(uname) and uname.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
+            cleaned = re.sub(r'[^a-zA-Z0-9]', '', uname).lower()
+            if cleaned:
+                return cleaned
+
         parts = []
         fn = str(row.get('firstName', '')).strip()
         mn = str(row.get('middleName', '')).strip()
@@ -155,7 +161,6 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         if '|' in ln: ln = ln.split('|')[0].strip()
 
         # Safety 2: Anti-Merge (If AI returned "Priyodarshini Manisha" without a pipe)
-        # We take only the first word for the first name to prevent merging users.
         if ' ' in fn:
             fn = fn.split(' ')[0].strip()
 
@@ -164,14 +169,18 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
                 parts.append(val)
         
         full = "".join(parts)
-        # Keep only letters, lowercase
-        clean = re.sub(r'[^a-zA-Z]', '', full).lower()
-        return clean if clean else row.get('userName', 'user')
+        # Keep only letters and numbers, lowercase
+        clean = re.sub(r'[^a-zA-Z0-9]', '', full).lower()
+        return clean if clean else 'user'
 
     # Programmatic password generation
     def construct_password(row):
+        pwd = str(row.get('password', '')).strip()
+        if has_value(pwd) and pwd.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
+            return pwd
+
         emp_id = str(row.get('employeeId', '')).strip()
-        if is_empty_value(emp_id):
+        if is_empty_value(emp_id) or emp_id.lower() in ('nan', 'none', '-', 'na', 'n/a'):
             return "" # Keep password blank if employeeId is missing
         return f"{pass_prefix}@{emp_id}"
 
@@ -296,10 +305,22 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     merged_df = pd.DataFrame(fuzzy_merged_rows).reset_index(drop=True)
     # ─────────────────────────────────────────────────────────────────────────
     
-    # Preserve 100% of the original Excel sheet row order
-    if '_original_order' in merged_df.columns:
-        merged_df = merged_df.sort_values('_original_order').reset_index(drop=True)
-        merged_df = merged_df.drop(columns=['_original_order'])
-        
+    # Default isEnabled to 'Yes' for all users if blank or missing
+    if 'isEnabled' not in merged_df.columns:
+        merged_df['isEnabled'] = 'Yes'
+    else:
+        def clean_enabled(x):
+            if pd.isna(x):
+                return 'Yes'
+            s = str(x).strip().lower()
+            if s in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                return 'Yes'
+            if s in ('y', 'yes', 'true', '1', 'active', 'enabled'):
+                return 'Yes'
+            if s in ('n', 'no', 'false', '0', 'inactive', 'disabled'):
+                return 'No'
+            return x
+        merged_df['isEnabled'] = merged_df['isEnabled'].apply(clean_enabled)
+
     return merged_df
 
