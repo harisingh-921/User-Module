@@ -1,12 +1,13 @@
 import re
 import difflib
 import pandas as pd
+from utils.common import is_empty_value, has_value
 
 def normalize_email(val: str) -> str:
     if not val:
         return ""
     clean = str(val).strip().lower()
-    return "" if clean in ('nan', 'none', '-', '') else clean
+    return "" if is_empty_value(clean) else clean
 
 def normalize_mobile(val: str) -> str:
     if not val:
@@ -15,7 +16,7 @@ def normalize_mobile(val: str) -> str:
     digits = re.sub(r'\D', '', str(val))
     # Match standard 10-digit number from the end
     clean = digits[-10:] if len(digits) >= 10 else digits
-    return "" if clean in ('nan', 'none', '-', '') else clean
+    return "" if is_empty_value(clean) else clean
 
 
 def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.DataFrame:
@@ -39,16 +40,15 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
                              'nursing incharge', 'quality', 'infection control', 'micu', 'sicu', 'ccu',
                              'dialysis', 'radiology', 'emergency', 'lab', 'icn', 'icu', 'ot']
     def _is_phantom_row(row):
-        emp = str(row.get('employeeId', '')).strip().lower()
-        has_emp_id = emp and emp not in ('nan', 'none', '-', '')
+        has_emp_id = has_value(row.get('employeeId', ''))
         
         first = str(row.get('firstName', '')).strip().lower()
         last = str(row.get('lastName', '')).strip().lower()
         uname = str(row.get('userName', '')).strip().lower()
         
-        has_first = first and first not in ('nan', 'none', '-', '')
-        has_last = last and last not in ('nan', 'none', '-', '')
-        has_uname = uname and uname not in ('nan', 'none', '-', '')
+        has_first = has_value(row.get('firstName', ''))
+        has_last = has_value(row.get('lastName', ''))
+        has_uname = has_value(row.get('userName', ''))
         
         # If absolutely no name fields and no employee ID, it's empty
         if not (has_first or has_last or has_uname) and not has_emp_id:
@@ -70,24 +70,24 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     # Determine the key to group by
     def get_master_key(row):
         eid = str(row.get('employeeId', '')).strip().lower()
-        if eid and eid not in ('nan', 'none', '-', ''):
+        if has_value(row.get('employeeId', '')):
             return f"id_{eid}"
         
         email = normalize_email(row.get('email', ''))
         if email:
             return f"email_{email}"
             
-        mobile = normalize_mobile(row.get('mobile', ''))
+        mobile = normalize_mobile(row.get('phone', ''))
         if mobile:
             return f"mobile_{mobile}"
             
         uname = str(row.get('userName', '')).strip().lower()
-        if uname and uname not in ('nan', 'none', '-', ''):
+        if has_value(row.get('userName', '')):
             return f"user_{uname}"
             
         first = str(row.get('firstName', '')).strip().lower()
         last = str(row.get('lastName', '')).strip().lower()
-        if first and first not in ('nan', 'none', '-', '') and last and last not in ('nan', 'none', '-', ''):
+        if has_value(row.get('firstName', '')) and has_value(row.get('lastName', '')):
             f_clean = re.sub(r'[^a-z]', '', first)
             l_clean = re.sub(r'[^a-z]', '', last)
             if f_clean or l_clean:
@@ -104,7 +104,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             group = group.copy()
             # 0 for rows with a valid ID (floats to top), 1 for blank IDs
             group['_has_emp'] = group['employeeId'].apply(
-                lambda x: 0 if str(x).strip() and str(x).strip().lower() not in ('nan', 'none', '-') else 1
+                lambda x: 0 if has_value(x) else 1
             )
             group['_fn_len'] = group['firstName'].astype(str).str.replace('|', '', regex=False).str.strip().str.len()
             group = group.sort_values(by=['_has_emp', '_fn_len']).drop(columns=['_has_emp', '_fn_len'])
@@ -118,7 +118,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             for r in group['roles'].dropna():
                 for part in str(r).split('|'):
                     part = part.strip()
-                    if part and part.lower() not in ('nan', '-', ''):
+                    if has_value(part):
                         if part not in all_roles:
                             all_roles.append(part)
             merged['roles'] = '|'.join(all_roles)
@@ -126,9 +126,9 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         for col in group.columns:
             if col in ('roles', '_group_key'):
                 continue
-            if str(merged.get(col, '')).strip().lower() in ('', 'nan', 'none', '-'):
+            if is_empty_value(merged.get(col, '')):
                 for val in group[col].dropna():
-                    if str(val).strip().lower() not in ('', 'nan', 'none', '-'):
+                    if has_value(val):
                         merged[col] = val
                         break
         return merged
@@ -160,7 +160,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             fn = fn.split(' ')[0].strip()
 
         for val in [fn, mn, ln]:
-            if val and val.lower() not in ('nan', 'none', '-'):
+            if has_value(val):
                 parts.append(val)
         
         full = "".join(parts)
@@ -171,7 +171,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     # Programmatic password generation
     def construct_password(row):
         emp_id = str(row.get('employeeId', '')).strip()
-        if not emp_id or emp_id.lower() in ('nan', 'none', '-'):
+        if is_empty_value(emp_id):
             return "" # Keep password blank if employeeId is missing
         return f"{pass_prefix}@{emp_id}"
 
@@ -254,7 +254,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             # If they have DIFFERENT non-empty employee IDs, emails, or mobile numbers, they are DIFFERENT people!
             emp_i = str(row_i.get('employeeId', '')).strip().lower()
             emp_j = str(row_j.get('employeeId', '')).strip().lower()
-            has_emp = emp_i and emp_j and emp_i not in ('nan', 'none', '-') and emp_j not in ('nan', 'none', '-')
+            has_emp = has_value(emp_i) and has_value(emp_j)
             diff_emp = has_emp and emp_i != emp_j
             
             email_i = normalize_email(row_i.get('email', ''))
@@ -262,8 +262,8 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             has_email = email_i and email_j
             diff_email = has_email and email_i != email_j
             
-            mob_i = normalize_mobile(row_i.get('mobile', ''))
-            mob_j = normalize_mobile(row_j.get('mobile', ''))
+            mob_i = normalize_mobile(row_i.get('phone', ''))
+            mob_j = normalize_mobile(row_j.get('phone', ''))
             has_mob = mob_i and mob_j
             diff_mob = has_mob and mob_i != mob_j
             
@@ -279,7 +279,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
                 all_roles = []
                 for r in (roles_i + roles_j):
                     r_clean = r.strip()
-                    if r_clean and r_clean.lower() not in ('nan', '-', '') and r_clean not in all_roles:
+                    if has_value(r_clean) and r_clean not in all_roles:
                         all_roles.append(r_clean)
                 row_i['roles'] = '|'.join(all_roles)
                 
@@ -288,7 +288,7 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
                     if col == 'roles': continue
                     val_i = str(row_i.get(col, '')).strip().lower()
                     val_j = str(row_j.get(col, '')).strip().lower()
-                    if val_i in ('', 'nan', 'none', '-') and val_j not in ('', 'nan', 'none', '-'):
+                    if is_empty_value(val_i) and has_value(val_j):
                         row_i[col] = row_j[col]
         
         fuzzy_merged_rows.append(row_i)

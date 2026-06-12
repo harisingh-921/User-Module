@@ -2,6 +2,7 @@
 import os
 import logging
 import streamlit as st
+from utils.common import has_value
 
 log = logging.getLogger(__name__)
 
@@ -11,19 +12,19 @@ def find_matching_excel_roles(user_dict, excel_rows_data):
     uname = str(user_dict.get('userName', '')).strip().lower()
     
     # Priority 1: Match by Employee ID
-    if emp_id and emp_id not in ('nan', 'none', '-', ''):
+    if has_value(emp_id):
         for row_info in excel_rows_data:
             if emp_id in row_info['raw_values']:
                 return row_info['roles']
                 
     # Priority 2: Match by Email
-    if email and email not in ('nan', 'none', '-', ''):
+    if has_value(email):
         for row_info in excel_rows_data:
             if email in row_info['raw_values']:
                 return row_info['roles']
                 
     # Priority 3: Match by Username
-    if uname and uname not in ('nan', 'none', '-', ''):
+    if has_value(uname):
         for row_info in excel_rows_data:
             if uname in row_info['raw_values'] or any(uname in str(val) for val in row_info['raw_values']):
                 return row_info['roles']

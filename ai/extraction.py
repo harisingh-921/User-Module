@@ -28,6 +28,7 @@ from config.constants import USER_MASTER_COLS
 from models.schemas import UserMasterResult
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import get_all_api_keys, find_matching_excel_roles
+from utils.common import is_empty_value, has_value
 
 log = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ _AI_RETRY_ATTEMPTS  = 3       # Transient error retries for apply_ai_smart_conte
 _AI_RETRY_BASE_WAIT = 2       # Base seconds for exponential backoff
 # Columns the AI is permitted to modify via apply_ai_smart_context
 _AI_ALLOWED_EDIT_COLS = {
-    'firstName', 'middleName', 'lastName', 'userName', 'email', 'mobile',
+    'firstName', 'middleName', 'lastName', 'userName', 'email', 'phone',
     'employeeId', 'departments', 'roles', 'units', 'designation',
     'isEnabled', 'password',
 }
@@ -315,7 +316,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             }.get(target_field, [])
                             for alias in aliases:
                                 for src_col, src_lower in headers_lower_temp.items():
-                                    if alias in src_lower:
+                                    if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
                                         col_mapping_temp[src_col] = target_field
                                         break
                                 if target_field in col_mapping_temp.values():
@@ -324,11 +325,11 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     for src_col, target_field in col_mapping_temp.items():
                         col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
                         val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
-                        if val and val not in ('nan', 'none', '-'):
+                        if has_value(val):
                             name_email_empty = False
                             break
                     
-                    text_cells = sum(1 for v in next_row.values if str(v).strip() and str(v).strip().lower() not in ('nan', 'none', '-'))
+                    text_cells = sum(1 for v in next_row.values if has_value(v))
                     if name_email_empty and text_cells >= 2:
                         is_sub_header = True
 
@@ -350,7 +351,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     last_parent = ""
                     for p in parent_headers:
                         p_str = str(p).strip()
-                        if p_str and p_str.lower() not in ('nan', 'none', '-'):
+                        if has_value(p_str):
                             last_parent = p_str
                         filled_parents.append(last_parent)
 
@@ -358,8 +359,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                         parent_h = filled_parents[c_idx]
                         child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
                         
-                        parent_clean = "" if parent_h.lower() in ('nan', 'none', '-') else parent_h
-                        child_clean = "" if child_h.lower() in ('nan', 'none', '-') else child_h
+                        parent_clean = "" if is_empty_value(parent_h) else parent_h
+                        child_clean = "" if is_empty_value(child_h) else child_h
                         
                         if parent_clean and child_clean:
                             if parent_clean.lower() == child_clean.lower():
@@ -438,7 +439,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     for v in row.values:
                         if pd.notna(v):
                             v_str = str(v).strip().lower()
-                            if v_str not in ('nan', 'none', '', '-'):
+                            if has_value(v_str):
                                 raw_vals.append(v_str)
                     
                     global_excel_rows_data.append({
@@ -466,7 +467,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     line = row_to_str(row)
                     if not line.strip(): continue
                     col_a_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
-                    if col_a_val.lower() not in ('nan', 'none', '', '-'):
+                    if has_value(col_a_val):
                         last_col_a_value = col_a_val
                     tag = f"[SHEET: {sheet_name}]"
                     if is_floating_role_section and last_col_a_value:
@@ -679,41 +680,58 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 
-def apply_ai_smart_context(df, command, api_key):
+def apply_ai_smart_context(df, command, api_key, context_df=None):
     """
     Applies natural language commands to the user dataframe using AI.
     Includes: 60s timeout, exponential-backoff retry, column allowlist guard.
+    Optionally accepts a context_df for external lookups/mappings.
     """
     api_key_str = str(api_key).strip()
     client = OpenAI(api_key=api_key_str)
     model = "gpt-4o-mini"
 
     # Context size guard: truncate rows if JSON would be too large
-    context_df = df
-    context_json = context_df.to_json(orient='records')
+    context_data_df = df
+    context_json = context_data_df.to_json(orient='records')
+    _is_truncated = False
     if len(context_json) > _MAX_AI_CONTEXT_KB * 1024:
-        # Send only first 200 rows and warn
-        context_df = df.head(200)
-        context_json = context_df.to_json(orient='records')
-        st.warning("⚠️ Dataset is large — AI command applied to first 200 rows only.")
+        # Send only first 200 rows for initial context evaluation
+        context_data_df = df.head(200)
+        context_json = context_data_df.to_json(orient='records')
+        _is_truncated = True
+        
+    mapping_prompt = ""
+    if context_df is not None and not context_df.empty:
+        mapping_prompt = f"\n\nEXTERNAL MAPPING DATA (UPLOADED FILE) COLUMNS: {list(context_df.columns)}\n"
 
-    prompt = f"""
+    def _build_prompt(data_json):
+        """Build a complete AI prompt for a given chunk of data JSON."""
+        return f"""
     You are a User Master Data Expert. The user wants to modify the following staff list.
 
     USER COMMAND: {command}
+    {mapping_prompt}
 
     CURRENT DATA (JSON):
-    {context_json}
+    {data_json}
 
     INSTRUCTIONS:
-    1. Understand the user's request (e.g., "Set role to X for all users in Y").
-    2. Respond ONLY with a valid JSON list of objects representing the UPDATED rows.
-    3. Each object MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
-    4. If the user wants to "Delete" or "Remove", return a field "::action": "delete" for those rows.
+    1. Understand the user's request.
+    2. If the user wants to MAP a column using the EXTERNAL MAPPING DATA, respond ONLY with a valid JSON object containing "mapping_intent":
+       {{"mapping_intent": {{"target_col": "column_in_staff_list", "lookup_col": "key_column_in_mapping_file", "value_col": "value_column_in_mapping_file"}}}}
+    3. If the user wants to perform a SIMPLE FIND AND REPLACE across a column, respond ONLY with a valid JSON object containing "replace_intent":
+       {{"replace_intent": {{"target_col": "column_in_staff_list", "search_text": "text_to_find", "replace_text": "replacement_text"}}}}
+    4. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
+    5. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
+    6. CRITICAL: DO NOT take shortcuts. You MUST exhaustively process EVERY SINGLE ROW in the dataset that matches the criteria. Missing even one row is a failure.
 
-    FORMAT EXAMPLE:
-    [{{"#": 1, "roles": "Admin|Doctor"}}, {{"#": 5, "isEnabled": "No"}}]
+    FORMAT EXAMPLES:
+    Mapping: {{"mapping_intent": {{"target_col": "departments", "lookup_col": "OldDept", "value_col": "NewDept"}}}}
+    Replace: {{"replace_intent": {{"target_col": "roles", "search_text": "INCIDENT REPORTER", "replace_text": "Incident Reporter"}}}}
+    Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
     """
+
+    prompt = _build_prompt(context_json)
 
     last_error = "Unknown error"
     for attempt in range(_AI_RETRY_ATTEMPTS):
@@ -725,7 +743,7 @@ def apply_ai_smart_context(df, command, api_key):
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"},
-                timeout=60,
+                timeout=120,
             )
 
             raw_res = completion.choices[0].message.content
@@ -735,6 +753,62 @@ def apply_ai_smart_context(df, command, api_key):
                 continue
 
             res_data = json.loads(raw_res)
+
+            # Programmatic Mapping Mode
+            # NOTE: mapping_intent and replace_intent operate on the FULL df via
+            # Pandas, so truncation is safe — AI only needs to identify the intent.
+            if "mapping_intent" in res_data and context_df is not None:
+                intent = res_data["mapping_intent"]
+                target_col = intent.get("target_col")
+                lookup_col = intent.get("lookup_col")
+                value_col = intent.get("value_col")
+                
+                if target_col in df.columns and lookup_col in context_df.columns and value_col in context_df.columns:
+                    # Create case-insensitive lookup dict
+                    lookup_dict = {str(k).strip().lower(): v for k, v in zip(context_df[lookup_col], context_df[value_col]) if pd.notna(k)}
+                    
+                    new_df = df.copy()
+                    affected = 0
+                    for i, row in new_df.iterrows():
+                        old_val = str(row.get(target_col, '')).strip()
+                        if old_val.lower() in lookup_dict:
+                            new_val = lookup_dict[old_val.lower()]
+                            # If mapped value is empty/NaN, keep the original value untouched
+                            if pd.notna(new_val) and str(new_val).strip() != '' and str(new_val).strip().lower() not in ('nan', 'none', '-', 'na', 'n/a'):
+                                if new_val != row.get(target_col):
+                                    new_df.at[i, target_col] = new_val
+                                    affected += 1
+                    
+                    summary = f"AI programmatically mapped {affected} row(s) in column '{target_col}' using '{lookup_col}' -> '{value_col}'."
+                    return new_df, summary
+                else:
+                    last_error = f"AI generated invalid mapping columns: {target_col}, {lookup_col}, {value_col}"
+                    break
+
+            # Programmatic Replace Mode
+            if "replace_intent" in res_data:
+                intent = res_data["replace_intent"]
+                target_col = intent.get("target_col")
+                search_text = intent.get("search_text", "")
+                replace_text = intent.get("replace_text", "")
+                
+                if target_col in df.columns and search_text:
+                    new_df = df.copy()
+                    import re
+                    escaped_search = re.escape(search_text)
+                    
+                    # Store original values to count affected rows
+                    orig_vals = new_df[target_col].copy()
+                    
+                    # Convert to string and do regex replacement
+                    new_df[target_col] = new_df[target_col].astype(str).str.replace(escaped_search, replace_text, regex=True)
+                    new_df[target_col] = new_df[target_col].replace('nan', '')
+                    
+                    # Calculate affected
+                    affected = (orig_vals.astype(str).replace('nan', '') != new_df[target_col]).sum()
+                    
+                    summary = f"AI programmatically replaced '{search_text}' with '{replace_text}' in {affected} row(s) of '{target_col}'."
+                    return new_df, summary
 
             # Normalise: AI may return {"updates": [...]} or bare list
             updates = res_data.get('updates', res_data) if isinstance(res_data, dict) else res_data
@@ -746,32 +820,60 @@ def apply_ai_smart_context(df, command, api_key):
             new_df = df.copy()
             affected = 0
             blocked_fields = set()
-            
-            # Safety: Prevent mass-hallucination (If AI tries to change > 80% of rows)
-            if len(updates) > len(df) * 0.8 and len(df) > 10:
-                 return None, "⚠️ AI suggested a mass-change of >80% of your data. Operation blocked for safety."
 
-            for update in updates:
-                if '#' not in update:
-                    continue
-                idx = new_df[new_df['#'] == update['#']].index
-                if idx.empty:
-                    continue
-                row_i = idx[0]
-                for field, val in update.items():
-                    if field == '#':
-                        continue
-                    if field not in _AI_ALLOWED_EDIT_COLS:
-                        blocked_fields.add(field)   # log but don't apply
-                        continue
-                    if field in new_df.columns:
-                        new_df.at[row_i, field] = val
-                        affected += 1
+            def _apply_updates(update_list, source_df):
+                """Apply a list of AI updates to new_df. Returns count of cells changed."""
+                nonlocal affected
+                row_map = {str(r.get('#', '')): idx for idx, r in source_df.iterrows()}
+                for update in update_list:
+                    row_serial = str(update.get('#', ''))
+                    if row_serial and row_serial in row_map:
+                        row_idx = row_map[row_serial]
+                        for k, v in update.items():
+                            if k == '#' or k == '::action': continue
+                            if k in _AI_ALLOWED_EDIT_COLS:
+                                if new_df.at[row_idx, k] != v:
+                                    new_df.at[row_idx, k] = v
+                                    affected += 1
+                            else:
+                                blocked_fields.add(k)
 
-            if blocked_fields:
-                log.warning("AI Safety: Blocked hallucinated field(s): %s", blocked_fields)
+            # Process first chunk updates
+            _apply_updates(updates, context_data_df)
+                            
+            # Process remaining chunks if dataset was truncated
+            if _is_truncated and len(df) > len(context_data_df):
+                import concurrent.futures
+                
+                def _process_chunk(chunk_df):
+                    c_json = chunk_df.to_json(orient='records')
+                    c_prompt = _build_prompt(c_json)
+                    try:
+                        c_comp = client.chat.completions.create(
+                            model=model,
+                            messages=[
+                                {"role": "system", "content": "You are a data patching engine. Return ONLY JSON."},
+                                {"role": "user", "content": c_prompt}
+                            ],
+                            response_format={"type": "json_object"},
+                            timeout=60,
+                        )
+                        c_res = json.loads(c_comp.choices[0].message.content)
+                        return c_res.get('updates', c_res) if isinstance(c_res, dict) else c_res
+                    except Exception:
+                        return []
+                        
+                chunk_size = len(context_data_df)
+                chunks = [df.iloc[i:i+chunk_size] for i in range(chunk_size, len(df), chunk_size)]
+                with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = {executor.submit(_process_chunk, c): c for c in chunks}
+                    for future in concurrent.futures.as_completed(futures):
+                        c_df = futures[future]
+                        c_updates = future.result()
+                        if isinstance(c_updates, list):
+                            _apply_updates(c_updates, c_df)
 
-            summary = f"AI applied changes to {len(updates)} row(s) ({affected} cell update(s))."
+            summary = f"AI applied changes to {len(df)} row(s) ({affected} cell update(s))."
             if blocked_fields:
                 summary += f" ⚠️ Blocked invalid field(s): {', '.join(sorted(blocked_fields))}."
             return new_df, summary
