@@ -129,6 +129,20 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                 lambda x: 'Yes' if pd.isna(x) or str(x).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a') else x
             )
 
+        # Generate password using Password Prefix for new users if not provided by client
+        if is_new and 'password' in df.columns:
+            import streamlit as st
+            pass_prefix = st.session_state.get("pass_prefix", "Med")
+            def fill_new_password(row):
+                pwd = str(row.get('password', '')).strip()
+                if pd.isna(row.get('password')) or pwd.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                    emp_id = str(row.get('employeeId', '')).strip()
+                    if emp_id and emp_id.lower() not in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                        return f"{pass_prefix}@{emp_id}"
+                    return ''
+                return pwd
+            df['password'] = df.apply(fill_new_password, axis=1)
+
         # Clean spaces around '|' in roles column for all users
         if 'roles' in df.columns:
             def clean_roles_spaces(val):

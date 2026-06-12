@@ -120,3 +120,35 @@ def test_find_matching_excel_roles():
     # Fallback to existing roles if not found
     user3 = {"employeeId": "EMP999", "email": "none@example.com", "userName": "guest", "roles": "GuestRole"}
     assert find_matching_excel_roles(user3, excel_rows_data) == "GuestRole"
+
+def test_segregation_password_prefix():
+    """Verify that segregation format_segregation_results applies pass_prefix to new users without passwords."""
+    import streamlit as st
+    st.session_state['pass_prefix'] = "SegPrefix"
+    
+    from segregation.export import format_segregation_results
+    
+    # Create mock client df
+    client_data = [
+        # Existing User (should not get pass_prefix password generation)
+        {"User Type": "Existing User", "employeeId": "EMP101", "password": "", "userName": "exuser", "roles": "Admin"},
+        # New User with existing password (should keep existing password)
+        {"User Type": "New User", "employeeId": "EMP102", "password": "ClientPass123", "userName": "newuser1", "roles": "Doctor"},
+        # New User with empty password (should generate password)
+        {"User Type": "New User", "employeeId": "EMP103", "password": "", "userName": "newuser2", "roles": "Nurse"}
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    results = format_segregation_results(client_df)
+    
+    existing_df = results['Existing Users']
+    new_df = results['New Users']
+    
+    # Check existing user did NOT get password generated
+    assert existing_df.loc[existing_df['userName'] == 'exuser', 'password'].values[0] == ''
+    
+    # Check new user with client password kept client password
+    assert new_df.loc[new_df['userName'] == 'newuser1', 'password'].values[0] == 'ClientPass123'
+    
+    # Check new user with empty password got SegPrefix@EMP103
+    assert new_df.loc[new_df['userName'] == 'newuser2', 'password'].values[0] == 'SegPrefix@EMP103'
