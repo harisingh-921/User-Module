@@ -78,7 +78,9 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         components.html(datalist_html, height=0, width=0)
 
     if st.button("🪄 Apply AI"):
-        if not chat_cmd:
+        if not api_key:
+            st.error("🔑 **API Key Missing**: Please configure `OPENAI_API_KEY` (or `GEMINI_API_KEY`) in Streamlit Cloud Secrets (or `.streamlit/secrets.toml` locally) to use the AI Assistant.")
+        elif not chat_cmd:
             st.warning("Please enter a command.")
         else:
             with st.status("🧠 AI is processing your request...", expanded=True) as status:

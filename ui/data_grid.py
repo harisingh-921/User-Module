@@ -335,8 +335,8 @@ def _render_download(df, grid_response, navigation):
         _export_hash_key = str(st.session_state._df_users_hash)
         if _export_hash_key not in st.session_state._excel_cache:
             _export_df = grid_response['data'].copy()
-            for _drop_col in ['#', '::auto_unique_id::', '_is_duplicate_user']:
-                if _drop_col in _export_df.columns:
+            for _drop_col in list(_export_df.columns):
+                if _drop_col == '#' or _drop_col == '::auto_unique_id::' or str(_drop_col).startswith('_'):
                     _export_df = _export_df.drop(columns=[_drop_col])
 
             _buf = io.BytesIO()
