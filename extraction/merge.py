@@ -322,5 +322,10 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             return x
         merged_df['isEnabled'] = merged_df['isEnabled'].apply(clean_enabled)
 
+    # Preserve 100% of the original Excel sheet row order and drop helper column
+    if '_original_order' in merged_df.columns:
+        merged_df = merged_df.sort_values('_original_order').reset_index(drop=True)
+        merged_df = merged_df.drop(columns=['_original_order'])
+
     return merged_df
 
