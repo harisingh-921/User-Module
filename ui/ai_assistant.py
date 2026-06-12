@@ -26,29 +26,35 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
 
-    chat_cmd = ""
+    # Ensure text input is ALWAYS rendered, and when a history item is chosen, it populates it
+    chat_input_key = f"ai_chat_cmd_{st.session_state.chat_input_key}"
+    selectbox_key = f"ai_cmd_select_{st.session_state.chat_input_key}"
+
+    if selectbox_key not in st.session_state:
+        st.session_state[selectbox_key] = "-- Select command from history --"
+
     if st.session_state.ai_cmd_history:
         unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
-        selected_cmd = st.selectbox(
-            "✨ Select Command from History (or choose 'Type custom command...')",
-            options=["-- Type custom command --"] + unique_history,
-            key=f"ai_cmd_select_{st.session_state.chat_input_key}"
+        
+        def handle_history_selection():
+            selected = st.session_state.get(selectbox_key)
+            if selected and selected != "-- Select command from history --":
+                st.session_state[chat_input_key] = selected
+                # Reset selectbox back to the placeholder so they can select it again or type
+                st.session_state[selectbox_key] = "-- Select command from history --"
+
+        st.selectbox(
+            "✨ Select Command from History (auto-fills the text input below)",
+            options=["-- Select command from history --"] + unique_history,
+            key=selectbox_key,
+            on_change=handle_history_selection
         )
-        if selected_cmd == "-- Type custom command --":
-            chat_cmd = st.text_input(
-                "✍️ Custom Command...",
-                placeholder="e.g. 'Map the departments column'",
-                key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
-            )
-        else:
-            chat_cmd = selected_cmd
-            st.info(f"Selected: **{chat_cmd}**")
-    else:
-        chat_cmd = st.text_input(
-            "✨ Commands...",
-            placeholder="e.g. 'Map the departments column'",
-            key=f"ai_chat_cmd_{st.session_state.chat_input_key}"
-        )
+
+    chat_cmd = st.text_input(
+        "✍️ Command / Changes to make",
+        placeholder="e.g. 'Map the departments column' or 'Set isEnabled to Yes for all'",
+        key=chat_input_key
+    )
 
     if st.button("🪄 Apply AI"):
         if not chat_cmd:

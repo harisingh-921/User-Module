@@ -133,6 +133,20 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
         if is_new and 'password' in df.columns:
             import streamlit as st
             pass_prefix = st.session_state.get("pass_prefix", "Med")
+            
+            # DEBUG LOGGING
+            try:
+                import os
+                os.makedirs("scratch", exist_ok=True)
+                with open("scratch/pwd_debug.txt", "w", encoding="utf-8") as f:
+                    f.write(f"is_new: {is_new}\n")
+                    f.write(f"pass_prefix: {pass_prefix}\n")
+                    f.write(f"Columns: {list(df.columns)}\n")
+                    f.write(f"First 5 employeeId: {df['employeeId'].head().tolist() if 'employeeId' in df.columns else 'N/A'}\n")
+                    f.write(f"First 5 password: {df['password'].head().tolist() if 'password' in df.columns else 'N/A'}\n")
+            except Exception as e:
+                pass
+
             def fill_new_password(row):
                 pwd = str(row.get('password', '')).strip()
                 if pd.isna(row.get('password')) or pwd.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
