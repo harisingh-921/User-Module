@@ -26,35 +26,35 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
 
-    # Ensure text input is ALWAYS rendered, and when a history item is chosen, it populates it
+    # Ensure text input is ALWAYS rendered first
     chat_input_key = f"ai_chat_cmd_{st.session_state.chat_input_key}"
-    selectbox_key = f"ai_cmd_select_{st.session_state.chat_input_key}"
-
-    if selectbox_key not in st.session_state:
-        st.session_state[selectbox_key] = "-- Select command from history --"
-
-    if st.session_state.ai_cmd_history:
-        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:10]
-        
-        def handle_history_selection():
-            selected = st.session_state.get(selectbox_key)
-            if selected and selected != "-- Select command from history --":
-                st.session_state[chat_input_key] = selected
-                # Reset selectbox back to the placeholder so they can select it again or type
-                st.session_state[selectbox_key] = "-- Select command from history --"
-
-        st.selectbox(
-            "✨ Select Command from History (auto-fills the text input below)",
-            options=["-- Select command from history --"] + unique_history,
-            key=selectbox_key,
-            on_change=handle_history_selection
-        )
 
     chat_cmd = st.text_input(
         "✍️ Command / Changes to make",
         placeholder="e.g. 'Map the departments column' or 'Set isEnabled to Yes for all'",
         key=chat_input_key
     )
+
+    # Render clean, clickable suggestion pills for 5-10 recent history items
+    if st.session_state.ai_cmd_history:
+        unique_history = list(dict.fromkeys(st.session_state.ai_cmd_history))[:8]
+        st.markdown(
+            "<div style='font-size:12px; font-weight:600; color:#64748b; margin-top:-8px; margin-bottom:4px;'>🕒 RECENT COMMANDS (click to fill):</div>",
+            unsafe_allow_html=True
+        )
+        
+        # Display as a grid of 4 columns per row
+        cols_per_row = 4
+        for i in range(0, len(unique_history), cols_per_row):
+            chunk = unique_history[i:i+cols_per_row]
+            cols = st.columns(cols_per_row)
+            for idx, cmd in enumerate(chunk):
+                label = cmd
+                if len(label) > 35:
+                    label = label[:32] + "..."
+                if cols[idx].button(f"💬 {label}", key=f"hist_btn_{i+idx}_{st.session_state.chat_input_key}", help=cmd, use_container_width=True):
+                    st.session_state[chat_input_key] = cmd
+                    st.rerun()
 
     if st.button("🪄 Apply AI"):
         if not chat_cmd:
