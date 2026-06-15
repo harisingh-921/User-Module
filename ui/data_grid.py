@@ -32,7 +32,7 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
         editable=True, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
     )
     # '#' always pinned left
-    gb.configure_column("#", headerName="#", width=80, pinned='left', editable=False,
+    gb.configure_column("#", headerName="#", width=60, pinned='left', editable=False,
                         checkboxSelection=True, headerCheckboxSelection=True)
     # Hide duplicate flags
     gb.configure_column("_is_duplicate_user", hide=True)
