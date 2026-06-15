@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
-from utils.common import clean_empty_series
+from utils.common import detect_duplicates_in_df
 from utils.history import (
     _compute_ai_diff, _df_hash, _recalculate_duplicates, _update_users_hash,
     _save_snapshot, _save_cell_diff, _pop_undo, _pop_redo
@@ -21,22 +21,8 @@ _LARGE_DATASET_ROWS = 500   # Row threshold to enable AgGrid large-dataset mode
 
 def _detect_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Add _is_duplicate_user and _is_duplicate_username columns."""
-    if not df.empty:
-        check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
-        df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
+    return detect_duplicates_in_df(df)
 
-        if 'userName' in df.columns:
-            normalized_names = df['userName'].astype(str).str.strip().str.lower()
-            valid_names = clean_empty_series(normalized_names).dropna()
-            counts = valid_names.value_counts()
-            dups = counts[counts > 1].index
-            df['_is_duplicate_username'] = normalized_names.isin(dups)
-        else:
-            df['_is_duplicate_username'] = False
-    else:
-        df['_is_duplicate_user'] = False
-        df['_is_duplicate_username'] = False
-    return df
 
 
 def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
@@ -337,9 +323,26 @@ def _render_download(df, grid_response, navigation):
         _export_hash_key = str(st.session_state._df_users_hash)
         if _export_hash_key not in st.session_state._excel_cache:
             _export_df = grid_response['data'].copy()
+
+            # --- Capture BOTH flags BEFORE dropping internal columns ---
+            # Flag 1: full-row exact clone (_is_duplicate_user)
+            _dup_full_rows = []
+            if '_is_duplicate_user' in _export_df.columns:
+                _full_mask = _export_df['_is_duplicate_user'].astype(str).str.strip().str.lower().isin({'true', '1', 't'})
+                _dup_full_rows = [i for i, v in enumerate(_full_mask) if v]
+
+            # Flag 2: userName collision only (_is_duplicate_username)
+            _dup_uname_rows = []
+            if '_is_duplicate_username' in _export_df.columns and 'userName' in _export_df.columns:
+                _uname_mask = _export_df['_is_duplicate_username'].astype(str).str.strip().str.lower().isin({'true', '1', 't'})
+                _dup_uname_rows = [i for i, v in enumerate(_uname_mask) if v]
+
             for _drop_col in list(_export_df.columns):
                 if _drop_col == '#' or _drop_col == '::auto_unique_id::' or str(_drop_col).startswith('_'):
                     _export_df = _export_df.drop(columns=[_drop_col])
+
+            _export_df = _export_df.reset_index(drop=True)
+            _all_cols = list(_export_df.columns)
 
             _buf = io.BytesIO()
             import pandas.io.formats.excel
@@ -349,14 +352,38 @@ def _render_download(df, grid_response, navigation):
                 _export_df.to_excel(_writer, index=False, sheet_name='Users')
                 _worksheet = _writer.sheets['Users']
                 _workbook = _writer.book
+
                 _text_format = _workbook.add_format({'num_format': '@'})
-                for _i, _col in enumerate(_export_df.columns):
+                for _i, _col in enumerate(_all_cols):
                     _col_str_lengths = [len(str(_val)) for _val in _export_df[_col] if pd.notna(_val)]
                     _max_len = max(
                         max(_col_str_lengths) if _col_str_lengths else 0,
                         len(str(_col))
                     ) + 2
                     _worksheet.set_column(_i, _i, min(_max_len, 50), _text_format)
+
+                # --- Highlight 1: full row pink for exact-clone duplicates ---
+                if _dup_full_rows:
+                    _full_row_fmt = _workbook.add_format({
+                        'num_format': '@',
+                        'bg_color':   '#FFCDD2',
+                    })
+                    for _row_pos in _dup_full_rows:
+                        _xl_row = _row_pos + 1
+                        for _ci, _col in enumerate(_all_cols):
+                            _worksheet.write(_xl_row, _ci, str(_export_df.at[_row_pos, _col]), _full_row_fmt)
+
+                # --- Highlight 2: userName cell pink for username collisions ---
+                if _dup_uname_rows and 'userName' in _all_cols:
+                    _uname_fmt = _workbook.add_format({
+                        'num_format': '@',
+                        'bg_color':   '#FFCDD2',
+                    })
+                    _uname_col_idx = _all_cols.index('userName')
+                    for _row_pos in _dup_uname_rows:
+                        _xl_row = _row_pos + 1
+                        _cell_val = str(_export_df.at[_row_pos, 'userName'])
+                        _worksheet.write(_xl_row, _uname_col_idx, _cell_val, _uname_fmt)
 
             st.session_state._excel_cache = {_export_hash_key: _buf.getvalue()}
 

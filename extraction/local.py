@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
 from extraction.merge import _merge_duplicate_users
+from models.dataframe_contract import enforce_contract
 from utils.common import is_empty_value, has_value
 
 def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent=""):
@@ -314,14 +315,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         # --- Detect tick-marked role columns ---
         role_cols = {}
         role_keywords = [
-            'audit user', 'audit incharge', 'audit admin', 'audit configuration admin', 
-            'audit dashboard viewer', 'non-conformance reporter', 'non-conformance admin', 
-            'non-conformance champion', 'ncrs dashboard viewer', 'incident reporter', 
-            'incident analyst', 'incident admin', 'incident dashboard viewer', 'qi viewer', 
-            'qi owner', 'qi admin', 'qi dashboard viewer', 'risk reporter', 'risk owner', 
-            'risk admin', 'risk auditor', 'proms user', 'proms admin', 'proms notification user', 
-            'accreditation audit user', 'accreditation audit incharge', 'accreditation audit admin',
-            'role'
+            'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
+            'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
+            'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
+            'infection', 'statistics', 'survey', 'feedback', 'complaint'
         ]
         for src_col in headers:
             src_lower = str(src_col).lower()
@@ -387,11 +384,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     
                     if is_ticked:
                         clean_rc_name = rc_name.split('|')[-1] if '|' in rc_name else rc_name
-                        parent_pre = rc_name.split('|')[0] if '|' in rc_name else ""
-                        if parent_pre and parent_pre.lower() not in clean_rc_name.lower():
-                            assigned_roles.append(f"{parent_pre}|{clean_rc_name}")
-                        else:
-                            assigned_roles.append(clean_rc_name)
+                        # Strip trailing duplicate index suffix (e.g. "Incident Reporter_1" -> "Incident Reporter")
+                        import re
+                        clean_rc_name = re.sub(r'_\d+$', '', clean_rc_name)
+                        assigned_roles.append(clean_rc_name)
                 if assigned_roles:
                     if user['roles']:
                         existing = user['roles'].split('|')
@@ -453,4 +449,4 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
     
     raw_df = pd.DataFrame(all_users)
     result_df = _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
-    return result_df
+    return enforce_contract(result_df)

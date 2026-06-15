@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 import numpy as np
-from utils.common import clean_empty_series
+from utils.common import detect_duplicates_in_df
 
 # Configurable guardrails
 _UNDO_LIMIT        = 30    # max history depth
@@ -67,20 +67,7 @@ def _df_hash(df: pd.DataFrame, cols: list) -> int:
 def _recalculate_duplicates() -> None:
     """Dynamically recalculates the exact-duplicate flag based on current data."""
     if 'df_users' in st.session_state and st.session_state.df_users is not None:
-        df = st.session_state.df_users
-        if '_is_duplicate_user' in df.columns:
-            check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
-            df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
-            
-        if '_is_duplicate_username' in df.columns:
-            if 'userName' in df.columns:
-                normalized_names = df['userName'].astype(str).str.strip().str.lower()
-                valid_names = clean_empty_series(normalized_names).dropna()
-                counts = valid_names.value_counts()
-                dups = counts[counts > 1].index
-                df['_is_duplicate_username'] = normalized_names.isin(dups)
-            else:
-                df['_is_duplicate_username'] = False
+        st.session_state.df_users = detect_duplicates_in_df(st.session_state.df_users)
 
 def _update_users_hash() -> None:
     """Immediately updates _df_users_hash in SessionState based on current df_users."""

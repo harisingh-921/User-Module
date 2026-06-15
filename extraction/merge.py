@@ -107,24 +107,26 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
                 lambda x: 0 if has_value(x) else 1
             )
             group['_fn_len'] = group['firstName'].astype(str).str.replace('|', '', regex=False).str.strip().str.len()
-            group = group.sort_values(by=['_has_emp', '_fn_len']).drop(columns=['_has_emp', '_fn_len'])
+            group = group.sort_values(by=['_has_emp', '_fn_len'], ascending=[True, False]).drop(columns=['_has_emp', '_fn_len'])
         merged = group.iloc[0].copy()
         # Keep the earliest original order!
         if '_original_order' in group.columns:
             merged['_original_order'] = group['_original_order'].min()
-        # Merge all role strings across duplicates
-        if 'roles' in group.columns:
-            all_roles = []
-            for r in group['roles'].dropna():
-                for part in str(r).split('|'):
-                    part = part.strip()
-                    if has_value(part):
-                        if part not in all_roles:
-                            all_roles.append(part)
-            merged['roles'] = '|'.join(all_roles)
+        # Merge all list-like strings (roles, departments, units, locations) across duplicates
+        list_cols = ['roles', 'departments', 'units', 'locations']
+        for col in list_cols:
+            if col in group.columns:
+                all_items = []
+                for val in group[col].dropna():
+                    for part in str(val).split('|'):
+                        part = part.strip()
+                        if has_value(part):
+                            if part not in all_items:
+                                all_items.append(part)
+                merged[col] = '|'.join(all_items)
         # Fill blank fields from other rows in the group
         for col in group.columns:
-            if col in ('roles', '_group_key'):
+            if col in list_cols or col == '_group_key':
                 continue
             if is_empty_value(merged.get(col, '')):
                 for val in group[col].dropna():

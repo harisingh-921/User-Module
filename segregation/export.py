@@ -1,6 +1,7 @@
 import pandas as pd
 import io
 import datetime
+from utils.common import detect_duplicates_in_df
 
 def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list = None) -> dict:
     """
@@ -189,8 +190,8 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
         return df_final
         
     return {
-        'Existing Users': format_to_template(existing_users, is_new=False),
-        'New Users': format_to_template(new_users, is_new=True)
+        'Existing Users': detect_duplicates_in_df(format_to_template(existing_users, is_new=False)),
+        'New Users': detect_duplicates_in_df(format_to_template(new_users, is_new=True))
     }
 
 def generate_segregation_workbook(dfs: dict) -> bytes:
@@ -199,17 +200,26 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
     """
     buf = io.BytesIO()
     
-    existing_users = dfs.get('Existing Users', pd.DataFrame()).copy()
-    new_users = dfs.get('New Users', pd.DataFrame()).copy()
-        
-    def get_dup_indices(df):
+    existing_users = detect_duplicates_in_df(dfs.get('Existing Users', pd.DataFrame())).copy()
+    new_users = detect_duplicates_in_df(dfs.get('New Users', pd.DataFrame())).copy()
+
+    def get_dup_full_indices(df):
+        """Row indices (1-based, for xlsxwriter) of exact-clone duplicate rows."""
         if '_is_duplicate_user' in df.columns:
             return [i + 1 for i, val in enumerate(df['_is_duplicate_user']) if str(val).strip().lower() in ('true', '1', 't')]
         return []
-        
-    existing_dup_idx = get_dup_indices(existing_users)
-    new_dup_idx = get_dup_indices(new_users)
-    
+
+    def get_dup_uname_indices(df):
+        """Row indices (0-based) of userName-collision rows."""
+        if '_is_duplicate_username' in df.columns:
+            return [i for i, val in enumerate(df['_is_duplicate_username']) if str(val).strip().lower() in ('true', '1', 't')]
+        return []
+
+    existing_dup_full_idx  = get_dup_full_indices(existing_users)
+    existing_dup_uname_idx = get_dup_uname_indices(existing_users)
+    new_dup_full_idx       = get_dup_full_indices(new_users)
+    new_dup_uname_idx      = get_dup_uname_indices(new_users)
+
     # Drop internal columns before exporting to Excel
     for df in [existing_users, new_users]:
         if '_is_duplicate_user' in df.columns:
@@ -218,46 +228,56 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
             df.drop(columns=['_is_duplicate_username'], inplace=True)
         if '#' in df.columns:
             df.drop(columns=['#'], inplace=True)
-        
+
     # Write to Excel
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
         # Formatting
         workbook = writer.book
-        duplicate_format = workbook.add_format({'bg_color': '#FFC7CE', 'font_color': '#9C0006'})
-        header_format = workbook.add_format() # Plain format with no bold or borders
-        
+        duplicate_format  = workbook.add_format({'bg_color': '#FFC7CE'})
+        uname_dup_format  = workbook.add_format({'bg_color': '#FFC7CE', 'num_format': '@'})
+        header_format     = workbook.add_format()  # Plain format with no bold or borders
+
         # Prepare datasets with fallback messages
         sheets_data = [
-            ('Existing Users', existing_users if not existing_users.empty else pd.DataFrame([{'Message': 'No existing users found'}]), existing_dup_idx),
-            ('New Users', new_users if not new_users.empty else pd.DataFrame([{'Message': 'No new users found'}]), new_dup_idx)
+            ('Existing Users', existing_users if not existing_users.empty else pd.DataFrame([{'Message': 'No existing users found'}]), existing_dup_full_idx, existing_dup_uname_idx),
+            ('New Users',      new_users      if not new_users.empty      else pd.DataFrame([{'Message': 'No new users found'}]),      new_dup_full_idx,      new_dup_uname_idx),
         ]
-        
-        for sheet_name, df_sheet, dup_indices in sheets_data:
+
+        for sheet_name, df_sheet, dup_full_indices, dup_uname_indices in sheets_data:
             if df_sheet.empty or 'Message' in df_sheet.columns:
-                # If it's a message sheet, write normally
                 df_sheet.to_excel(writer, sheet_name=sheet_name, index=False)
                 continue
-                
+
             # Write data without headers starting from row 1 (second row)
             df_sheet.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=1)
             worksheet = writer.sheets[sheet_name]
-            
+
             # Write plain headers manually
             for col_num, value in enumerate(df_sheet.columns.values):
                 worksheet.write(0, col_num, value, header_format)
-                
+
             # Create a text format for the cells
             text_format = workbook.add_format({'num_format': '@'})
-            
-            # Set all column widths to a fixed value (12 units) and apply Text format
+
+            # Set all column widths and apply Text format
             worksheet.set_column(0, len(df_sheet.columns) - 1, 12, text_format)
-            
-            # Apply formatting directly to duplicate rows without needing a helper column
-            if dup_indices:
-                for row_idx in dup_indices:
+
+            # --- Highlight 1: full row pink for exact-clone duplicate rows ---
+            if dup_full_indices:
+                for row_idx in dup_full_indices:
                     worksheet.conditional_format(row_idx, 0, row_idx, len(df_sheet.columns) - 1,
                                                  {'type': 'no_blanks', 'format': duplicate_format})
                     worksheet.conditional_format(row_idx, 0, row_idx, len(df_sheet.columns) - 1,
                                                  {'type': 'blanks', 'format': duplicate_format})
-                                                     
+
+            # --- Highlight 2: userName cell pink+bold for username collisions ---
+            if dup_uname_indices and 'userName' in df_sheet.columns:
+                uname_col_idx = list(df_sheet.columns).index('userName')
+                df_sheet_reset = df_sheet.reset_index(drop=True)
+                for row_pos in dup_uname_indices:
+                    xl_row   = row_pos + 1   # +1 for the manually-written header at row 0
+                    cell_val = str(df_sheet_reset.at[row_pos, 'userName'])
+                    worksheet.write(xl_row, uname_col_idx, cell_val, uname_dup_format)
+
     return buf.getvalue()
+
