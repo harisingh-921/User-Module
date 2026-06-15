@@ -1,13 +1,45 @@
 import pandas as pd
 import io
 import datetime
-from utils.common import detect_duplicates_in_df
+from utils.common import detect_duplicates_in_df, has_value
 
 def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list = None) -> dict:
     """
     Separates the client data into Existing and New users and formats them to the target template.
     Returns a dict with 'Existing Users' and 'New Users' dataframes.
     """
+    if not client_df.empty:
+        client_df = client_df.copy()
+        # Detect the client department column (using semantic mappings)
+        from config.constants import SEMANTIC_MAPPINGS
+        dept_aliases = SEMANTIC_MAPPINGS.get('departments', ['department', 'departments', 'dept'])
+        dept_col = None
+        for col in client_df.columns:
+            col_str = str(col).strip().lower()
+            if col_str in dept_aliases or any(alias == col_str for alias in dept_aliases):
+                dept_col = col
+                break
+        
+        if dept_col:
+            # Collect all unique departments (excluding placeholders and 'all')
+            unique_depts = []
+            for val in client_df[dept_col].dropna():
+                for part in str(val).split('|'):
+                    part = part.strip()
+                    if has_value(part) and part.lower() not in ('all', 'nan', 'none', '-', 'na', 'n/a'):
+                        if part not in unique_depts:
+                            unique_depts.append(part)
+            
+            if unique_depts:
+                combined_depts = '|'.join(unique_depts)
+                def expand_all_depts(x):
+                    if pd.isna(x):
+                        return x
+                    if str(x).strip().lower() == 'all':
+                        return combined_depts
+                    return x
+                client_df[dept_col] = client_df[dept_col].apply(expand_all_depts)
+
     existing_users = client_df[client_df['User Type'] == 'Existing User'].copy() if not client_df.empty else pd.DataFrame()
     new_users = client_df[client_df['User Type'] == 'New User'].copy() if not client_df.empty else pd.DataFrame()
     

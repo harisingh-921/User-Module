@@ -241,3 +241,22 @@ def test_merge_combines_units_and_departments():
     assert "Accreditation" in depts
 
 
+def test_merge_expands_all_departments():
+    """Verify that _merge_duplicate_users replaces 'All' departments with a combination of all unique departments."""
+    data = [
+        {"employeeId": "EMP001", "firstName": "User1", "departments": "Nursing"},
+        {"employeeId": "EMP002", "firstName": "User2", "departments": "Cathlab"},
+        {"employeeId": "EMP003", "firstName": "User3", "departments": "All"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df)
+    
+    # User3 should have departments: "Nursing|Cathlab" (or "Cathlab|Nursing")
+    user3 = merged_df[merged_df["employeeId"] == "EMP003"].iloc[0]
+    depts = user3["departments"].split("|")
+    assert len(depts) == 2
+    assert "Nursing" in depts
+    assert "Cathlab" in depts
+
+
+

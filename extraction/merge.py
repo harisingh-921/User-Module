@@ -324,6 +324,27 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
             return x
         merged_df['isEnabled'] = merged_df['isEnabled'].apply(clean_enabled)
 
+    # Expand "All" departments
+    if 'departments' in merged_df.columns:
+        # Collect all unique departments (excluding placeholders and 'all')
+        unique_depts = []
+        for val in merged_df['departments'].dropna():
+            for part in str(val).split('|'):
+                part = part.strip()
+                if has_value(part) and part.lower() not in ('all', 'nan', 'none', '-', 'na', 'n/a'):
+                    if part not in unique_depts:
+                        unique_depts.append(part)
+        
+        if unique_depts:
+            combined_depts = '|'.join(unique_depts)
+            def expand_all_depts(x):
+                if pd.isna(x):
+                    return x
+                if str(x).strip().lower() == 'all':
+                    return combined_depts
+                return x
+            merged_df['departments'] = merged_df['departments'].apply(expand_all_depts)
+
     # Preserve 100% of the original Excel sheet row order and drop helper column
     if '_original_order' in merged_df.columns:
         merged_df = merged_df.sort_values('_original_order').reset_index(drop=True)
