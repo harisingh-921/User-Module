@@ -9,7 +9,7 @@ class UserField(BaseModel):
     units: Optional[str] = Field(None, description="Assigned units")
     locations: Optional[str] = Field(None, description="Assigned locations")
     email: Optional[str] = Field(None, description="Primary email")
-    mobile: Optional[str] = Field(None, description="Primary mobile")
+    phone: Optional[str] = Field(None, description="Primary mobile phone")
     employeeId: Optional[str] = Field(None, description="Unique employee identifier")
     firstName: Optional[str] = Field(None, description="User first name")
     middleName: Optional[str] = Field(None, description="User middle name")

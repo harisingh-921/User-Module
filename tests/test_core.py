@@ -68,7 +68,7 @@ def test_merge_duplicate_users_by_employee_id():
     """Verify rows with matching employeeId are merged and credentials generated."""
     data = [
         {"employeeId": "EMP001", "firstName": "John", "lastName": "Doe", "roles": "Admin", "email": "john@example.com"},
-        {"employeeId": "EMP001", "firstName": "John", "lastName": "Doe", "roles": "Doctor", "mobile": "1234567890"}
+        {"employeeId": "EMP001", "firstName": "John", "lastName": "Doe", "roles": "Doctor", "phone": "1234567890"}
     ]
     df = pd.DataFrame(data)
     merged_df = _merge_duplicate_users(df, pass_prefix="TestPass")
@@ -78,7 +78,7 @@ def test_merge_duplicate_users_by_employee_id():
     assert user["userName"] == "johndoe"
     assert user["password"] == "TestPass@EMP001"
     assert user["email"] == "john@example.com"
-    assert user["mobile"] == "1234567890"
+    assert user["phone"] == "1234567890"
     
     # Combined roles
     roles = user["roles"].split("|")
@@ -173,3 +173,90 @@ def test_merge_preserves_provided_credentials():
     assert user["userName"] == "johndoecustom"
     assert user["password"] == "CustomPassword123"
     assert user["isEnabled"] == "Yes"
+
+
+def test_detect_duplicates_in_df():
+    """Verify that detect_duplicates_in_df correctly flags exact clones and username collisions."""
+    from utils.common import detect_duplicates_in_df
+    
+    data = [
+        # Exact duplicate clone rows
+        {"firstName": "John", "lastName": "Doe", "userName": "johndoe", "email": "john@example.com"},
+        {"firstName": "John", "lastName": "Doe", "userName": "johndoe", "email": "john@example.com"},
+        # Username collision but not exact clone (different email)
+        {"firstName": "John", "lastName": "Smith", "userName": "johndoe", "email": "jsmith@example.com"},
+        # Unique row
+        {"firstName": "Jane", "lastName": "Smith", "userName": "janesmith", "email": "jane@example.com"}
+    ]
+    df = pd.DataFrame(data)
+    flagged_df = detect_duplicates_in_df(df)
+    
+    # Check exact clone rows
+    assert flagged_df.loc[0, "_is_duplicate_user"] == True
+    assert flagged_df.loc[1, "_is_duplicate_user"] == True
+    assert flagged_df.loc[2, "_is_duplicate_user"] == False
+    assert flagged_df.loc[3, "_is_duplicate_user"] == False
+    
+    # Check username collisions (johndoe is used in row 0, 1, and 2)
+    assert flagged_df.loc[0, "_is_duplicate_username"] == True
+    assert flagged_df.loc[1, "_is_duplicate_username"] == True
+    assert flagged_df.loc[2, "_is_duplicate_username"] == True
+    assert flagged_df.loc[3, "_is_duplicate_username"] == False
+
+
+def test_merge_combines_units_and_departments():
+    """Verify that _merge_duplicate_users merges records and combines different units/departments via pipes."""
+    data = [
+        {
+            "employeeId": "EMP999",
+            "firstName": "Ram",
+            "lastName": "Prasad Golli",
+            "userName": "ramprasadgolli",
+            "units": "Health city",
+            "departments": "Quality"
+        },
+        {
+            "employeeId": "EMP999",
+            "firstName": "Ram",
+            "lastName": "Prasad Golli",
+            "userName": "ramprasadgolli",
+            "units": "Ram Nagar",
+            "departments": "Accreditation"
+        }
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df)
+    
+    assert len(merged_df) == 1
+    user = merged_df.iloc[0]
+    
+    # Verify units are pipe-separated
+    units = user["units"].split("|")
+    assert "Health city" in units
+    assert "Ram Nagar" in units
+    
+    # Verify departments are pipe-separated
+    depts = user["departments"].split("|")
+    assert "Quality" in depts
+    assert "Accreditation" in depts
+
+
+def test_merge_expands_all_departments():
+    """Verify that _merge_duplicate_users replaces 'All' departments with a combination of all unique departments."""
+    data = [
+        {"employeeId": "EMP001", "firstName": "User1", "departments": "Nursing"},
+        {"employeeId": "EMP002", "firstName": "User2", "departments": "Cathlab"},
+        {"employeeId": "EMP003", "firstName": "User3", "departments": "All"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df)
+    
+    # User3 should have departments: "Nursing|Cathlab" (or "Cathlab|Nursing")
+    user3 = merged_df[merged_df["employeeId"] == "EMP003"].iloc[0]
+    depts = user3["departments"].split("|")
+    assert len(depts) == 2
+    assert "Nursing" in depts
+    assert "Cathlab" in depts
+
+
+

@@ -52,3 +52,25 @@ def clean_empty_series(series: pd.Series) -> pd.Series:
     """
     cleaned = series.astype(str).str.strip().str.lower()
     return series.where(~cleaned.isin(_EMPTY_STRINGS), other=pd.NA)
+
+
+def detect_duplicates_in_df(df: pd.DataFrame) -> pd.DataFrame:
+    """Add or update _is_duplicate_user and _is_duplicate_username columns."""
+    df = df.copy()
+    if not df.empty:
+        check_cols = [c for c in df.columns if not str(c).startswith('_') and not str(c).startswith('::') and c != '#']
+        df['_is_duplicate_user'] = df.duplicated(subset=check_cols, keep=False)
+
+        if 'userName' in df.columns:
+            normalized_names = df['userName'].astype(str).str.strip().str.lower()
+            valid_names = clean_empty_series(normalized_names).dropna()
+            counts = valid_names.value_counts()
+            dups = counts[counts > 1].index
+            df['_is_duplicate_username'] = normalized_names.isin(dups)
+        else:
+            df['_is_duplicate_username'] = False
+    else:
+        df['_is_duplicate_user'] = False
+        df['_is_duplicate_username'] = False
+    return df
+

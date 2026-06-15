@@ -26,6 +26,7 @@ if __name__ == "__main__" or sys.path[0].endswith("ai"):
 
 from config.constants import USER_MASTER_COLS
 from models.schemas import UserMasterResult
+from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import get_all_api_keys, find_matching_excel_roles
 from utils.common import is_empty_value, has_value
@@ -113,7 +114,7 @@ Identify fields by MEANING, not by position or exact column header name:
     - If the document has a "Full Name" column, split it logically into firstName and lastName.
     - employeeId: Extract the unique ID.
     - roles: This is CRITICAL. In this Excel format, the roles are often found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI') or are provided in the [ROLE SECTION:] tag at the start of the row. Combine all applicable roles found in Column A and [ROLE SECTION:] into this field, separated by "|".
-    - departments / units / designation / email / mobile: Map correctly based on column headers.
+    - departments / units / designation / email / phone: Map correctly based on column headers.
 4. UNIT NAME (STRICT RULE): Do NOT guess, assume, or infer the unit name from email addresses, department names, or any other fields. The `units` field must remain completely empty unless the Excel sheet has an explicit column for the unit name and the cells under it explicitly contain the unit name value.
 5. NO LOGIC: Do not try to generate usernames or complex passwords. Just extract the raw name parts. Python will handle the rest.
 6. NA LOGIC: If a value is "-", leave it blank.
@@ -135,7 +136,7 @@ OUTPUT FORMAT (JSON):
       "units": "",
       "designation": "",
       "email": "",
-      "mobile": "",
+      "phone": "",
       "isEnabled": "Yes"
     }}
   ]
@@ -149,24 +150,16 @@ def get_openai_client(api_key):
     return OpenAI(api_key=api_key_str)
 
 def probe_api_key(key):
-    """Probes an API key with a fast 3-second timeout request to verify it's working."""
+    """Validates an API key using the free /models list endpoint (no quota consumed)."""
     if not key:
         return False
     key_str = str(key).strip()
     client = get_openai_client(key_str)
     if not client:
         return False
-    
-    model = "gpt-4o-mini"
-        
     try:
-        # A simple lightweight chat completion to test connectivity and quota
-        client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": "ping"}],
-            max_tokens=1,
-            timeout=3.0
-        )
+        # models.list() is a free REST call — validates key authorization without spending tokens
+        client.models.list()
         return True
     except Exception as e:
         log.warning("Pre-flight check failed for key prefix %s...: %s: %s", key_str[:12], type(e).__name__, e)
@@ -175,17 +168,21 @@ def probe_api_key(key):
 def get_healthy_api_keys(api_key):
     """
     Returns only verified, active API keys.
-    Results are cached in Streamlit session state to avoid running probes on every rerun.
+    Results are cached in Streamlit session state with a 30-minute TTL to avoid
+    running probes on every Streamlit rerun within the same session.
     """
     all_keys = get_all_api_keys(api_key)
     if not all_keys:
         return []
-        
-    if "healthy_api_keys" in st.session_state:
-        cached_keys = [k for k in st.session_state.healthy_api_keys if k in all_keys]
-        if cached_keys:
-            return cached_keys
-            
+
+    _CACHE_TTL_SECONDS = 1800  # 30 minutes
+    cached = st.session_state.get("healthy_api_keys")
+    cached_ts = st.session_state.get("healthy_api_keys_ts", 0)
+    if cached is not None and (time.time() - cached_ts) < _CACHE_TTL_SECONDS:
+        still_valid = [k for k in cached if k in all_keys]
+        if still_valid:
+            return still_valid
+
     healthy_keys = []
     with ThreadPoolExecutor(max_workers=len(all_keys)) as executor:
         future_to_key = {executor.submit(probe_api_key, key): key for key in all_keys}
@@ -196,9 +193,10 @@ def get_healthy_api_keys(api_key):
                     healthy_keys.append(key)
             except Exception:
                 pass
-                
+
     ordered_healthy = [k for k in all_keys if k in healthy_keys]
     st.session_state.healthy_api_keys = ordered_healthy
+    st.session_state.healthy_api_keys_ts = time.time()
     return ordered_healthy
 
 def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Med"):
@@ -390,14 +388,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
 
                 role_cols = {}
                 role_keywords = [
-                    'audit user', 'audit incharge', 'audit admin', 'audit configuration admin', 
-                    'audit dashboard viewer', 'non-conformance reporter', 'non-conformance admin', 
-                    'non-conformance champion', 'ncrs dashboard viewer', 'incident reporter', 
-                    'incident analyst', 'incident admin', 'incident dashboard viewer', 'qi viewer', 
-                    'qi owner', 'qi admin', 'qi dashboard viewer', 'risk reporter', 'risk owner', 
-                    'risk admin', 'risk auditor', 'proms user', 'proms admin', 'proms notification user', 
-                    'accreditation audit user', 'accreditation audit incharge', 'accreditation audit admin',
-                    'role'
+                    'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
+                    'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
+                    'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
+                    'infection', 'statistics', 'survey', 'feedback', 'complaint'
                 ]
                 for col_idx, header in enumerate(headers):
                     header_lower = header.lower()
@@ -433,6 +427,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             clean_role_name = role_name
                             if '|' in clean_role_name:
                                 clean_role_name = clean_role_name.split('|')[-1]
+                            import re
+                            clean_role_name = re.sub(r'_\d+$', '', clean_role_name)
                             row_roles.append(clean_role_name)
                     
                     raw_vals = []
@@ -576,6 +572,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             
             raw_df = pd.DataFrame(all_users)
             result_df = _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
+            result_df = enforce_contract(result_df)
             st.toast(f"✅ {len(raw_df)} raw rows → {len(result_df)} unique users after merge.")
             return result_df
 
@@ -673,7 +670,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             all_users.extend(ordered_results[i])
         
         raw_df = pd.DataFrame(all_users)
-        return _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
+        result_df = _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
+        return enforce_contract(result_df)
 
     except Exception as e:
         log.error("Exception in openai_extract_users", exc_info=True)
@@ -721,13 +719,18 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
        {{"mapping_intent": {{"target_col": "column_in_staff_list", "lookup_col": "key_column_in_mapping_file", "value_col": "value_column_in_mapping_file"}}}}
     3. If the user wants to perform a SIMPLE FIND AND REPLACE across a column, respond ONLY with a valid JSON object containing "replace_intent":
        {{"replace_intent": {{"target_col": "column_in_staff_list", "search_text": "text_to_find", "replace_text": "replacement_text"}}}}
-    4. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
-    5. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
-    6. CRITICAL: DO NOT take shortcuts. You MUST exhaustively process EVERY SINGLE ROW in the dataset that matches the criteria. Missing even one row is a failure.
+    4. If the user wants to SET a column to a fixed value for ALL rows (or rows where another column equals a specific value), respond ONLY with a valid JSON object containing "set_value_intent":
+       {{"set_value_intent": {{"target_col": "column_to_update", "value": "new_value", "filter_col": null, "filter_value": null}}}}
+       If targeting specific rows only (e.g. "Set isEnabled to No for all rows where designation is Intern"), populate filter_col and filter_value.
+    5. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
+    6. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
+    7. CRITICAL: DO NOT take shortcuts. You MUST exhaustively process EVERY SINGLE ROW in the dataset that matches the criteria. Missing even one row is a failure.
 
     FORMAT EXAMPLES:
     Mapping: {{"mapping_intent": {{"target_col": "departments", "lookup_col": "OldDept", "value_col": "NewDept"}}}}
     Replace: {{"replace_intent": {{"target_col": "roles", "search_text": "INCIDENT REPORTER", "replace_text": "Incident Reporter"}}}}
+    Set all: {{"set_value_intent": {{"target_col": "isEnabled", "value": "Yes", "filter_col": null, "filter_value": null}}}}
+    Set filtered: {{"set_value_intent": {{"target_col": "isEnabled", "value": "No", "filter_col": "designation", "filter_value": "Intern"}}}}
     Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
     """
 
@@ -809,6 +812,32 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     
                     summary = f"AI programmatically replaced '{search_text}' with '{replace_text}' in {affected} row(s) of '{target_col}'."
                     return new_df, summary
+            # Programmatic Set-Value Mode (fast path for bulk set commands like "Set isEnabled to Yes for all")
+            # Executes the update locally via vectorised pandas — zero extra API calls.
+            if "set_value_intent" in res_data:
+                intent = res_data["set_value_intent"]
+                target_col = intent.get("target_col")
+                new_value = intent.get("value", "")
+                filter_col = intent.get("filter_col")
+                filter_value = intent.get("filter_value")
+
+                if target_col and target_col in _AI_ALLOWED_EDIT_COLS and target_col in df.columns:
+                    new_df = df.copy()
+                    if filter_col and filter_value is not None and filter_col in df.columns:
+                        # Filtered set: only rows where filter_col matches filter_value (case-insensitive)
+                        mask = new_df[filter_col].astype(str).str.strip().str.lower() == str(filter_value).strip().lower()
+                        affected = int(mask.sum())
+                        new_df.loc[mask, target_col] = new_value
+                        summary = f"AI locally set '{target_col}' = '{new_value}' for {affected} row(s) where {filter_col} = '{filter_value}'."
+                    else:
+                        # Unconditional set: apply to entire column
+                        affected = len(new_df)
+                        new_df[target_col] = new_value
+                        summary = f"AI locally set '{target_col}' = '{new_value}' for all {affected} row(s)."
+                    return new_df, summary
+                else:
+                    last_error = f"AI generated invalid set_value_intent: target_col='{target_col}' not found or not permitted."
+                    break
 
             # Normalise: AI may return {"updates": [...]} or bare list
             updates = res_data.get('updates', res_data) if isinstance(res_data, dict) else res_data
