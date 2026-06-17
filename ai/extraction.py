@@ -25,7 +25,7 @@ if __name__ == "__main__" or sys.path[0].endswith("ai"):
         del sys.modules['extraction']
 
 from config.constants import USER_MASTER_COLS
-from models.schemas import UserMasterResult
+from models.schemas import UserMasterResult, AISmartResponse, RowUpdate
 from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import get_all_api_keys, find_matching_excel_roles
@@ -713,25 +713,16 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     CURRENT DATA (JSON):
     {data_json}
 
-    INSTRUCTIONS:
-    1. Understand the user's request.
-    2. If the user wants to MAP a column using the EXTERNAL MAPPING DATA, respond ONLY with a valid JSON object containing "mapping_intent":
-       {{"mapping_intent": {{"target_col": "column_in_staff_list", "lookup_col": "key_column_in_mapping_file", "value_col": "value_column_in_mapping_file"}}}}
-    3. If the user wants to perform a SIMPLE FIND AND REPLACE across a column, respond ONLY with a valid JSON object containing "replace_intent":
-       {{"replace_intent": {{"target_col": "column_in_staff_list", "search_text": "text_to_find", "replace_text": "replacement_text"}}}}
-    4. If the user wants to SET a column to a fixed value for ALL rows (or rows where another column equals a specific value), respond ONLY with a valid JSON object containing "set_value_intent":
-       {{"set_value_intent": {{"target_col": "column_to_update", "value": "new_value", "filter_col": null, "filter_value": null}}}}
-       If targeting specific rows only (e.g. "Set isEnabled to No for all rows where designation is Intern"), populate filter_col and filter_value.
-    5. For all other edits, respond ONLY with a valid JSON object containing an "updates" array representing the UPDATED rows.
-    6. Each object in the "updates" array MUST contain the '#' (serial number) to identify the row and ONLY the fields that changed.
-    7. CRITICAL: DO NOT take shortcuts. You MUST exhaustively process EVERY SINGLE ROW in the dataset that matches the criteria. Missing even one row is a failure.
-
-    FORMAT EXAMPLES:
-    Mapping: {{"mapping_intent": {{"target_col": "departments", "lookup_col": "OldDept", "value_col": "NewDept"}}}}
-    Replace: {{"replace_intent": {{"target_col": "roles", "search_text": "INCIDENT REPORTER", "replace_text": "Incident Reporter"}}}}
-    Set all: {{"set_value_intent": {{"target_col": "isEnabled", "value": "Yes", "filter_col": null, "filter_value": null}}}}
-    Set filtered: {{"set_value_intent": {{"target_col": "isEnabled", "value": "No", "filter_col": "designation", "filter_value": "Intern"}}}}
-    Standard: {{"updates": [{{"#": 1, "roles": "Admin"}}]}}
+    INSTRUCTIONS & STRUCTURAL MAPPING:
+    1. Determine the best way to execute the USER COMMAND.
+    2. If the user wants to MAP a column using the EXTERNAL MAPPING DATA, populate ONLY `mapping_intent` in the schema.
+    3. If the user wants to perform a SIMPLE FIND AND REPLACE of a text/substring in a column across the rows, populate ONLY `replace_intent` in the schema.
+       - IMPORTANT: Use this intent for all search and replace requests. Do NOT perform the replacements manually in the `updates` list if they can be expressed as a find and replace.
+    4. If the user wants to SET a column to a fixed value for ALL rows (or rows where another column equals a specific value), populate ONLY `set_value_intent` in the schema.
+    5. For all other custom or row-specific edits, populate the `updates` list in the schema:
+       - Each update MUST contain the row's '#' (serial number) and ONLY the fields that actually changed.
+       - CRITICAL FOR DELIMITED STRINGS (e.g. roles / departments): If you are modifying a pipe-separated (|) list of roles or departments, you MUST preserve all other values in the list. DO NOT truncate or drop other values in the list. For example, if the original value is "Admin|Doctor|User" and you want to replace "User" with "Guest", the updated value MUST be "Admin|Doctor|Guest". Dropping "Admin|Doctor" is a severe failure.
+       - DO NOT take shortcuts. You MUST exhaustively process every single matching row.
     """
 
     prompt = _build_prompt(context_json)
@@ -739,32 +730,29 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     last_error = "Unknown error"
     for attempt in range(_AI_RETRY_ATTEMPTS):
         try:
-            completion = client.chat.completions.create(
+            completion = client.chat.completions.parse(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a data patching engine. Return ONLY JSON."},
+                    {"role": "system", "content": "You are a data patching engine."},
                     {"role": "user", "content": prompt}
                 ],
-                response_format={"type": "json_object"},
+                response_format=AISmartResponse,
                 timeout=120,
+                temperature=0.0
             )
 
-            raw_res = completion.choices[0].message.content
-            if not raw_res or not raw_res.strip():
-                last_error = "AI returned an empty response."
+            res_data = completion.choices[0].message.parsed
+            if not res_data:
+                last_error = "AI failed to parse response into Structured Output schema."
                 time.sleep(_AI_RETRY_BASE_WAIT * (2 ** attempt))
                 continue
 
-            res_data = json.loads(raw_res)
-
             # Programmatic Mapping Mode
-            # NOTE: mapping_intent and replace_intent operate on the FULL df via
-            # Pandas, so truncation is safe — AI only needs to identify the intent.
-            if "mapping_intent" in res_data and context_df is not None:
-                intent = res_data["mapping_intent"]
-                target_col = intent.get("target_col")
-                lookup_col = intent.get("lookup_col")
-                value_col = intent.get("value_col")
+            if res_data.mapping_intent is not None and context_df is not None:
+                intent = res_data.mapping_intent
+                target_col = intent.target_col
+                lookup_col = intent.lookup_col
+                value_col = intent.value_col
                 
                 if target_col in df.columns and lookup_col in context_df.columns and value_col in context_df.columns:
                     # Create case-insensitive lookup dict
@@ -789,11 +777,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     break
 
             # Programmatic Replace Mode
-            if "replace_intent" in res_data:
-                intent = res_data["replace_intent"]
-                target_col = intent.get("target_col")
-                search_text = intent.get("search_text", "")
-                replace_text = intent.get("replace_text", "")
+            if res_data.replace_intent is not None:
+                intent = res_data.replace_intent
+                target_col = intent.target_col
+                search_text = intent.search_text
+                replace_text = intent.replace_text
                 
                 if target_col in df.columns and search_text:
                     new_df = df.copy()
@@ -812,14 +800,14 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     
                     summary = f"AI programmatically replaced '{search_text}' with '{replace_text}' in {affected} row(s) of '{target_col}'."
                     return new_df, summary
-            # Programmatic Set-Value Mode (fast path for bulk set commands like "Set isEnabled to Yes for all")
-            # Executes the update locally via vectorised pandas — zero extra API calls.
-            if "set_value_intent" in res_data:
-                intent = res_data["set_value_intent"]
-                target_col = intent.get("target_col")
-                new_value = intent.get("value", "")
-                filter_col = intent.get("filter_col")
-                filter_value = intent.get("filter_value")
+
+            # Programmatic Set-Value Mode
+            if res_data.set_value_intent is not None:
+                intent = res_data.set_value_intent
+                target_col = intent.target_col
+                new_value = intent.value
+                filter_col = intent.filter_col
+                filter_value = intent.filter_value
 
                 if target_col and target_col in _AI_ALLOWED_EDIT_COLS and target_col in df.columns:
                     new_df = df.copy()
@@ -839,12 +827,6 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     last_error = f"AI generated invalid set_value_intent: target_col='{target_col}' not found or not permitted."
                     break
 
-            # Normalise: AI may return {"updates": [...]} or bare list
-            updates = res_data.get('updates', res_data) if isinstance(res_data, dict) else res_data
-            if not isinstance(updates, list):
-                last_error = "AI returned invalid format (expected a JSON list)."
-                break
-
             # Apply updates with column allowlist guard
             new_df = df.copy()
             affected = 0
@@ -855,11 +837,12 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                 nonlocal affected
                 row_map = {str(r.get('#', '')): idx for idx, r in source_df.iterrows()}
                 for update in update_list:
-                    row_serial = str(update.get('#', ''))
+                    row_serial = str(update.serial_number)
                     if row_serial and row_serial in row_map:
                         row_idx = row_map[row_serial]
-                        for k, v in update.items():
-                            if k == '#' or k == '::action': continue
+                        update_dict = update.model_dump(exclude_unset=True, by_alias=True)
+                        for k, v in update_dict.items():
+                            if k == '#' or k == 'serial_number' or k == '::action': continue
                             if k in _AI_ALLOWED_EDIT_COLS:
                                 if new_df.at[row_idx, k] != v:
                                     new_df.at[row_idx, k] = v
@@ -868,7 +851,8 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                                 blocked_fields.add(k)
 
             # Process first chunk updates
-            _apply_updates(updates, context_data_df)
+            if res_data.updates is not None:
+                _apply_updates(res_data.updates, context_data_df)
                             
             # Process remaining chunks if dataset was truncated
             if _is_truncated and len(df) > len(context_data_df):
@@ -878,17 +862,20 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                     c_json = chunk_df.to_json(orient='records')
                     c_prompt = _build_prompt(c_json)
                     try:
-                        c_comp = client.chat.completions.create(
+                        c_comp = client.chat.completions.parse(
                             model=model,
                             messages=[
-                                {"role": "system", "content": "You are a data patching engine. Return ONLY JSON."},
+                                {"role": "system", "content": "You are a data patching engine."},
                                 {"role": "user", "content": c_prompt}
                             ],
-                            response_format={"type": "json_object"},
+                            response_format=AISmartResponse,
                             timeout=60,
+                            temperature=0.0
                         )
-                        c_res = json.loads(c_comp.choices[0].message.content)
-                        return c_res.get('updates', c_res) if isinstance(c_res, dict) else c_res
+                        c_res = c_comp.choices[0].message.parsed
+                        if c_res and c_res.updates:
+                            return c_res.updates
+                        return []
                     except Exception:
                         return []
                         
@@ -906,11 +893,6 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             if blocked_fields:
                 summary += f" ⚠️ Blocked invalid field(s): {', '.join(sorted(blocked_fields))}."
             return new_df, summary
-
-        except json.JSONDecodeError as e:
-            last_error = f"AI returned malformed JSON: {e}"
-            log.warning("Smart Context attempt %d JSONDecodeError: %s", attempt + 1, e)
-            break   # No point retrying a parse error
 
         except Exception as e:
             err_str = str(e)

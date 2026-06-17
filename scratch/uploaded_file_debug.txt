@@ -1,0 +1,192 @@
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
+
+--- UPLOADED FILE: Medblaze New Users Template -Ranchi.xlsx ---
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles']
+First row: {'units': 'Ranchi', 'Employee Name': 'Rohini Ekka', 'User Login ID': 'RN-RAN-00006', 'password': 'Paras@123', 'departments': 'Emergency', 'email': 'Emergency.ranchi@parashospitals.com', 'mobile': 8789190401, 'roles': 'INCIDENT REPORTER'}
+
+--- UPLOADED FILE: Report_medblaze - 2026-06-16T160456.773.xlsx ---
+Columns: ['Username', 'Employee Id', 'Designation', 'Roles', 'Units', 'Department', 'First Name', 'Middle Name', 'Last Name', 'Phone', 'Email Address', 'Last Available At', 'Enabled', 'MultiFactor Authentication', 'Third party/ AD username', 'Timezone', 'Shift Duration', 'Locations', 'Reporting To']
+First row: {'Username': 'ALAKSHITHAKUR', 'Employee Id': 'PK-PAN-02574', 'Designation': nan, 'Roles': 'QI Viewer|Audit User - Patient Arrival Audit|Feedback Collector|Guest Relations User', 'Units': 'Paras Panchkula', 'Department': 'GUEST RELATIONS', 'First Name': nan, 'Middle Name': nan, 'Last Name': nan, 'Phone': '7082144969', 'Email Address': 'guestrelations.pkl@parashospitals.com', 'Last Available At': '31-Jul-2025 05:07 pm', 'Enabled': 'Yes', 'MultiFactor Authentication': 'No', 'Third party/ AD username': nan, 'Timezone': nan, 'Shift Duration': nan, 'Locations': nan, 'Reporting To': nan}
