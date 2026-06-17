@@ -16,8 +16,8 @@ def init_session_state():
         "_df_users_hash":   None,
         "_ai_preview":      None,
         "_excel_cache":     {},          # {hash: bytes}
-        "current_nav":      "Both",
-        "nav_radio_key":    "Both",
+        "current_nav":      "Both (Segregation New & Existing Users)",
+        "nav_radio_key":    "Both (Segregation New & Existing Users)",
         "pass_prefix":      "Med",
         "user_intent":      "",
         "ai_cmd_history":   [],

@@ -92,7 +92,7 @@ if navigation == "New User":
         if srcs:
             st.success(f"📂 **{len(srcs)} file(s)** active")
 
-elif navigation == "Both":
+elif navigation == "Both (Segregation New & Existing Users)":
     from segregation import render_segregation_ui
     render_segregation_ui()
 
