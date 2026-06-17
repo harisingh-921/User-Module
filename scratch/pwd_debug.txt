@@ -1,5 +1,5 @@
 is_new: True
-pass_prefix: SegPrefix
-Columns: ['User Type', 'employeeId', 'password', 'userName', 'roles', 'departments', 'units', 'locations', 'email', 'phone', 'firstName', 'middleName', 'lastName', 'designation', 'timezone', 'shiftDuration', 'thirdPartyUsername', 'dateOfJoining', 'lastWorkingDate', 'reportingTo', 'isEnabled', 'passwordPolicy']
-First 5 employeeId: ['EMP102', 'EMP103']
-First 5 password: ['ClientPass123', '']
+pass_prefix: Med
+Columns: ['units', 'Employee Name', 'User Login ID', 'password', 'departments', 'email', 'mobile', 'roles', 'Is Duplicate', 'User Type', 'Match Status', 'Matched By', 'Matched Medblaze Record', 'Remarks', 'master_userName', 'master_employeeId', 'master_designation', 'master_roles', 'master_units', 'master_departments', 'master_firstName', 'master_middleName', 'master_lastName', 'master_phone', 'master_email', 'master_Last Available At', 'master_isEnabled', 'master_MultiFactor Authentication', 'master_thirdPartyUsername', 'master_timezone', 'master_shiftDuration', 'master_locations', 'master_reportingTo', 'employeeId', 'userName', 'locations', 'phone', 'firstName', 'middleName', 'lastName', 'designation', 'timezone', 'shiftDuration', 'thirdPartyUsername', 'dateOfJoining', 'lastWorkingDate', 'reportingTo', 'isEnabled', 'passwordPolicy']
+First 5 employeeId: ['RN-RAN-00034', 'RN-RAN-00041', 'RN-RAN-00080', 'RN-RAN-00085', 'RN-RAN-000862']
+First 5 password: ['Paras@123', 'Paras@123', 'Paras@123', 'Paras@123', 'Paras@123']

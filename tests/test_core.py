@@ -259,4 +259,68 @@ def test_merge_expands_all_departments():
     assert "Cathlab" in depts
 
 
+def test_apply_ai_smart_context_replace_intent():
+    from unittest.mock import MagicMock, patch
+    from ai.extraction import apply_ai_smart_context
+    from models.schemas import AISmartResponse, ReplaceIntent
+
+    df = pd.DataFrame([
+        {"#": 1, "userName": "johndoe", "roles": "Admin|INCIDENT REPORTER"},
+        {"#": 2, "userName": "janesmith", "roles": "User|INCIDENT REPORTER"}
+    ])
+
+    mock_response = MagicMock()
+    mock_parsed = AISmartResponse(
+        replace_intent=ReplaceIntent(
+            target_col="roles",
+            search_text="INCIDENT REPORTER",
+            replace_text="Incident Reporter"
+        )
+    )
+    mock_response.choices[0].message.parsed = mock_parsed
+
+    with patch("ai.extraction.OpenAI") as mock_openai:
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.chat.completions.parse.return_value = mock_response
+
+        result_df, summary = apply_ai_smart_context(df, "replace INCIDENT REPORTER with Incident Reporter", "mock-key")
+
+        assert "programmatically replaced" in summary
+        assert result_df.loc[0, "roles"] == "Admin|Incident Reporter"
+        assert result_df.loc[1, "roles"] == "User|Incident Reporter"
+
+
+def test_apply_ai_smart_context_updates_preserves_other_values():
+    from unittest.mock import MagicMock, patch
+    from ai.extraction import apply_ai_smart_context
+    from models.schemas import AISmartResponse, RowUpdate
+
+    df = pd.DataFrame([
+        {"#": 36, "userName": "testuser", "roles": "Audit Incharge|Incident Reporter|QI Viewer"}
+    ])
+
+    mock_response = MagicMock()
+    mock_parsed = AISmartResponse(
+        updates=[
+            RowUpdate(
+                **{"#": 36},
+                roles="Audit Incharge|Incident Reporter|QI Viewer|NewRole"
+            )
+        ]
+    )
+    mock_response.choices[0].message.parsed = mock_parsed
+
+    with patch("ai.extraction.OpenAI") as mock_openai:
+        mock_client = MagicMock()
+        mock_openai.return_value = mock_client
+        mock_client.chat.completions.parse.return_value = mock_response
+
+        result_df, summary = apply_ai_smart_context(df, "Add NewRole to row 36 roles", "mock-key")
+
+        assert "applied changes" in summary
+        assert result_df.loc[0, "roles"] == "Audit Incharge|Incident Reporter|QI Viewer|NewRole"
+
+
+
 
