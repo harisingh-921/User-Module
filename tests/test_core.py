@@ -322,5 +322,145 @@ def test_apply_ai_smart_context_updates_preserves_other_values():
         assert result_df.loc[0, "roles"] == "Audit Incharge|Incident Reporter|QI Viewer|NewRole"
 
 
+def test_verify_extracted_user_source_valid():
+    from ai.extraction import verify_extracted_user_source
+    raw_text = "Name: John Doe, Email: john.doe@example.com, Emp ID: EMP101, Username: jdoe101"
+    
+    # Valid exact match
+    user_dict_1 = {
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "john.doe@example.com",
+        "employeeId": "EMP101",
+        "userName": "jdoe101"
+    }
+    assert verify_extracted_user_source(user_dict_1, raw_text) is True
+
+    # Case-insensitive match and trailing/leading space checks
+    user_dict_2 = {
+        "firstName": "  john  ",
+        "lastName": "DOE",
+        "email": "JOHN.DOE@example.com",
+        "employeeId": "emp101",
+        "userName": "JDOE101"
+    }
+    assert verify_extracted_user_source(user_dict_2, raw_text) is True
+
+    # Non-string representation check
+    user_dict_3 = {
+        "firstName": "John",
+        "lastName": None,
+        "email": "-",
+        "employeeId": "EMP101",
+        "userName": ""
+    }
+    assert verify_extracted_user_source(user_dict_3, raw_text) is True
+
+
+def test_verify_extracted_user_source_hallucinated():
+    from ai.extraction import verify_extracted_user_source
+    raw_text = "Name: John Doe, Email: john.doe@example.com, Emp ID: EMP101, Username: jdoe101"
+
+    # Fails Person Validation Rule (all blank/None/empty)
+    user_dict_empty = {
+        "firstName": "",
+        "lastName": "",
+        "email": "-",
+        "employeeId": "  ",
+        "userName": None
+    }
+    assert verify_extracted_user_source(user_dict_empty, raw_text) is False
+
+    # Hallucinated firstName
+    user_dict_hallucinated_first = {
+        "firstName": "Alice",
+        "lastName": "Doe",
+        "email": "john.doe@example.com",
+        "employeeId": "EMP101",
+        "userName": "jdoe101"
+    }
+    assert verify_extracted_user_source(user_dict_hallucinated_first, raw_text) is False
+
+    # Hallucinated lastName
+    user_dict_hallucinated_last = {
+        "firstName": "John",
+        "lastName": "Smith",
+        "email": "john.doe@example.com",
+        "employeeId": "EMP101",
+        "userName": "jdoe101"
+    }
+    assert verify_extracted_user_source(user_dict_hallucinated_last, raw_text) is False
+
+    # Hallucinated employeeId
+    user_dict_hallucinated_emp = {
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "john.doe@example.com",
+        "employeeId": "EMP999",
+        "userName": "jdoe101"
+    }
+    assert verify_extracted_user_source(user_dict_hallucinated_emp, raw_text) is False
+
+    # Hallucinated email
+    user_dict_hallucinated_email = {
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "alice@example.com",
+        "employeeId": "EMP101",
+        "userName": "jdoe101"
+    }
+    assert verify_extracted_user_source(user_dict_hallucinated_email, raw_text) is False
+
+    # Hallucinated userName
+    user_dict_hallucinated_username = {
+        "firstName": "John",
+        "lastName": "Doe",
+        "email": "john.doe@example.com",
+        "employeeId": "EMP101",
+        "userName": "alicedoe"
+    }
+    assert verify_extracted_user_source(user_dict_hallucinated_username, raw_text) is False
+
+
+def test_cross_examine_extracted_users():
+    from unittest.mock import MagicMock
+    from ai.extraction import cross_examine_extracted_users
+    from models.schemas import VerificationResult
+
+    # Mock client and response structure
+    mock_client = MagicMock()
+    mock_parsed_clean = VerificationResult(is_hallucinated=False, reason=None)
+    mock_response_clean = MagicMock()
+    mock_response_clean.choices[0].message.parsed = mock_parsed_clean
+    mock_client.chat.completions.parse.return_value = mock_response_clean
+
+    raw_text = "John Doe, EMP101"
+    extracted_users = [{"firstName": "John", "lastName": "Doe", "employeeId": "EMP101"}]
+
+    # Case 1: Valid batch (cross-examination returns is_hallucinated=False)
+    res_clean = cross_examine_extracted_users(mock_client, "gpt-4o-mini", raw_text, extracted_users)
+    assert res_clean is True
+
+    # Case 2: Hallucinated batch (cross-examination returns is_hallucinated=True)
+    mock_parsed_hallucinated = VerificationResult(is_hallucinated=True, reason="Alice Smith does not exist in the source")
+    mock_response_hallucinated = MagicMock()
+    mock_response_hallucinated.choices[0].message.parsed = mock_parsed_hallucinated
+    mock_client.chat.completions.parse.return_value = mock_response_hallucinated
+
+    res_hallucinated = cross_examine_extracted_users(mock_client, "gpt-4o-mini", raw_text, extracted_users)
+    assert res_hallucinated is False
+
+    # Case 3: Empty extracted_users list should bypass and return True immediately without LLM call
+    mock_client.reset_mock()
+    assert cross_examine_extracted_users(mock_client, "gpt-4o-mini", raw_text, []) is True
+    mock_client.chat.completions.parse.assert_not_called()
+
+    # Case 4: Exception scenario - should catch and return True (fallback)
+    mock_client.chat.completions.parse.side_effect = Exception("API connection error")
+    res_exception = cross_examine_extracted_users(mock_client, "gpt-4o-mini", raw_text, extracted_users)
+    assert res_exception is True
+
+
+
 
 
