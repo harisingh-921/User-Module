@@ -454,6 +454,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         if has_name:
                             all_users.append(sub_user)
                 else:
+                    for f in ['email', 'phone']:
+                        val = user.get(f, '')
+                        if '|' in val:
+                            user[f] = val.split('|')[0].strip()
                     has_name = (user.get('firstName', '').strip() or 
                                user.get('lastName', '').strip() or 
                                user.get('employeeId', '').strip() or
@@ -461,6 +465,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     if has_name:
                         all_users.append(user)
             else:
+                for f in ['email', 'phone']:
+                    val = user.get(f, '')
+                    if '|' in val:
+                        user[f] = val.split('|')[0].strip()
                 has_name = (user.get('firstName', '').strip() or 
                            user.get('lastName', '').strip() or 
                            user.get('employeeId', '').strip() or
