@@ -294,7 +294,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     for src_col, src_lower in headers_lower.items():
                         if src_col in col_mapping:
                             continue
-                        if kw in src_lower:
+                        child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                        if kw in child_part:
                             col_mapping[src_col] = target_field
                             found = True
                             break

@@ -514,6 +514,41 @@ def test_ignore_suggested_columns():
     assert user["employeeId"] == "1035605"
 
 
+def test_designation_not_mapped_as_username():
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "User Name,User Name|First Name,User Name|Last Name,User Name|Designation,User Name|Employee Id,User Name|Email,User Name|Mobile\n"
+        "Jaipur,Vidhya,Kanwar,ICN,221020,icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM,9376950533 |7023701893\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    user = df.iloc[0]
+    assert user["firstName"] == "Vidhya"
+    assert user["lastName"] == "Kanwar"
+    assert user["designation"] == "ICN"
+    assert "icn" not in user["userName"]
+
+
+def test_no_merge_different_employee_ids():
+    from extraction.merge import _merge_duplicate_users
+    
+    data = [
+        {"userName": "icn", "firstName": "Vidhya", "employeeId": "221020", "email": "icn.jaipur@fortis.com"},
+        {"userName": "icn", "firstName": "Sarita", "employeeId": "180783", "email": "icn.jaipur@fortis.com"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df)
+    
+    assert len(merged_df) == 2
+    users = merged_df["firstName"].tolist()
+    assert "Vidhya" in users
+    assert "Sarita" in users
+
+
+
 
 
 
