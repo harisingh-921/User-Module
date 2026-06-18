@@ -100,7 +100,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         # --- Check if the row immediately following the header row is a sub-header row ---
         is_sub_header = False
         headers_temp = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
-        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
+        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values if 'suggested' not in str(h).lower()}
         
         # Build temp col_mapping to check if next row has actual data in name/email columns
         col_mapping_temp = {}
@@ -223,7 +223,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         
         # --- Map columns to our schema ---
         col_mapping = {}  # source_col -> target_field
-        headers_lower = {h: h.lower().strip() for h in headers}
+        headers_lower = {h: h.lower().strip() for h in headers if 'suggested' not in h.lower()}
         
         # Pass 1: Direct and Semantic Alias Matches (highest priority)
         for target_field in USER_MASTER_COLS:
@@ -316,6 +316,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         for h in headers:
             if h in col_mapping:
                 continue
+            if 'suggested' in h.lower():  # Ignore suggested column!
+                continue
             if 'module|' in h.lower():  # Specific role columns in module sections are never running roles columns
                 continue
             if any(kw in h.lower() for kw in ['role', 'audit user', 'assigned role', 'user role', 'incharge', 'admin', 'running role']):
@@ -335,6 +337,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         ]
         for src_col in headers:
             src_lower = str(src_col).lower()
+            if 'suggested' in src_lower:  # Ignore suggested column!
+                continue
             is_role_header = any(kw in src_lower for kw in role_keywords)
             if is_role_header and src_col not in col_mapping and src_col != roles_col_name:
                 col_vals = data_df[src_col].dropna().astype(str).str.strip()

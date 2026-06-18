@@ -494,6 +494,27 @@ def test_enforce_contract_type_safety():
     assert result.at[4, "userName"] == "normal"
 
 
+def test_ignore_suggested_columns():
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "Employee Name,Suggested UserName,Audit User,employeeId,email,phone\n"
+        "Sarita Sharma,saritasharma1,Audit User - CES,1035605,sarita@example.com,9876543210\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 1
+    user = df.iloc[0]
+    assert user["firstName"] == "Sarita"
+    assert user["lastName"] == "Sharma"
+    assert user["roles"] == "Audit User - CES"
+    assert user["userName"] == "saritasharma"
+    assert user["employeeId"] == "1035605"
+
+
+
 
 
 
