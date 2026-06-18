@@ -29,7 +29,7 @@ def render_sidebar():
         </div>
             """, unsafe_allow_html=True)
 
-        selected_nav = st.radio("Navigation Mode", ["New User", "Update User", "Both"], key="nav_radio_key")
+        selected_nav = st.radio("Navigation Mode", ["New User", "Update User", "Both (Segregation New & Existing Users)"], key="nav_radio_key")
         st.session_state.current_nav = selected_nav
         navigation = st.session_state.current_nav
 

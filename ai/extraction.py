@@ -25,7 +25,7 @@ if __name__ == "__main__" or sys.path[0].endswith("ai"):
         del sys.modules['extraction']
 
 from config.constants import USER_MASTER_COLS
-from models.schemas import UserMasterResult, AISmartResponse, RowUpdate
+from models.schemas import UserMasterResult, AISmartResponse, RowUpdate, VerificationResult
 from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import get_all_api_keys, find_matching_excel_roles
@@ -198,6 +198,120 @@ def get_healthy_api_keys(api_key):
     st.session_state.healthy_api_keys = ordered_healthy
     st.session_state.healthy_api_keys_ts = time.time()
     return ordered_healthy
+
+def verify_extracted_user_source(user_dict, raw_chunk_text):
+    """
+    Deterministically verifies that all key fields (firstName, lastName, email, employeeId, userName)
+    extracted by the LLM are valid substrings in the raw source chunk text.
+    Also enforces that the record contains at least one identifier (Person Validation Rule).
+    """
+    def _clean_val(val):
+        if val is None:
+            return ""
+        s = str(val).strip()
+        if s.lower() in ('nan', 'none', '-', ''):
+            return ""
+        return s
+
+    first_name = _clean_val(user_dict.get('firstName'))
+    email = _clean_val(user_dict.get('email'))
+    emp_id = _clean_val(user_dict.get('employeeId'))
+    username = _clean_val(user_dict.get('userName'))
+    last_name = _clean_val(user_dict.get('lastName'))
+    
+    # 1. Person Validation Rule: must contain at least one valid identifier
+    if not (first_name or email or emp_id or username):
+        log.warning("Discarding record: fails Person Validation Rule (missing firstName, email, employeeId, and userName)")
+        return False
+
+    # Normalize source text for substring searches
+    source_lower = str(raw_chunk_text).lower()
+
+    # Helper function to check if string exists in source
+    def _is_in_source(val_clean):
+        if not val_clean:
+            return True
+        # Strip potential trailing/leading whitespace or quote characters
+        val_clean = val_clean.strip('"').strip("'").lower()
+        if not val_clean:
+            return True
+        return val_clean in source_lower
+
+    # Check firstName
+    if not _is_in_source(first_name):
+        log.warning("Hallucination detected: firstName '%s' not in source text.", first_name)
+        return False
+
+    # Check lastName
+    if not _is_in_source(last_name):
+        log.warning("Hallucination detected: lastName '%s' not in source text.", last_name)
+        return False
+
+    # Check employeeId
+    if not _is_in_source(emp_id):
+        log.warning("Hallucination detected: employeeId '%s' not in source text.", emp_id)
+        return False
+
+    # Check email
+    if not _is_in_source(email):
+        log.warning("Hallucination detected: email '%s' not in source text.", email)
+        return False
+
+    # Check userName
+    if not _is_in_source(username):
+        log.warning("Hallucination detected: userName '%s' not in source text.", username)
+        return False
+
+    return True
+
+
+def cross_examine_extracted_users(client, model, raw_chunk_text, extracted_users):
+    """
+    Performs dual-model cross-examination to verify the extracted users
+    list against the raw text chunk using a Structured Output verification prompt.
+    """
+    if not extracted_users:
+        return True
+
+    # Limit verification checks to prevent infinite loops
+    try:
+        users_json = json.dumps([u for u in extracted_users], default=str)
+        prompt = f"""
+        You are an Independent Data Auditor.
+        Below is a raw source data chunk followed by a list of users extracted from it.
+
+        RAW SOURCE DATA:
+        \"\"\"{raw_chunk_text}\"\"\"
+
+        EXTRACTED USERS (JSON):
+        {users_json}
+
+        TASK:
+        1. Compare every single field of the extracted users list with the raw source data.
+        2. Set `is_hallucinated` to True ONLY if there are fabricated records, names, emails, or employee IDs that do NOT exist anywhere in the RAW SOURCE DATA.
+        3. Do NOT flag minor casing differences or spacing differences as hallucinations. Only flag completely fabricated or made-up details.
+        """
+
+        completion = client.chat.completions.parse(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a precise data auditor."},
+                {"role": "user", "content": prompt}
+            ],
+            response_format=VerificationResult,
+            timeout=30,
+            temperature=0.0
+        )
+        res = completion.choices[0].message.parsed
+        if res and res.is_hallucinated:
+            log.warning("Dual-Model cross-examination flagged batch as hallucinated. Reason: %s", res.reason)
+            return False
+    except Exception as e:
+        log.warning("An error occurred during dual-model cross-examination: %s", e)
+        # Fallback to True to avoid dropping data on network/timeout issues
+        return True
+    return True
+
 
 def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="Med"):
     """Universal AI User Extraction Engine with Chunking & Failover."""
@@ -529,7 +643,14 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                     temperature=0.0
                                 )
                                 result = [u.__dict__ for u in completion2.choices[0].message.parsed.users]
-                            return result
+                            
+                            # Verify and cross-examine
+                            verified = [u for u in result if verify_extracted_user_source(u, chunk_text)]
+                            if verified:
+                                if not cross_examine_extracted_users(current_client, model, chunk_text, verified):
+                                    log.warning("Batch %d failed cross-examination. Returning empty list to prevent hallucinations.", batch_idx)
+                                    return []
+                            return verified
                         except Exception as e:
                             log.warning("Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
                             err_str = str(e).lower()
@@ -640,7 +761,14 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             timeout=60,
                             temperature=0.0
                         )
-                        return [u.__dict__ for u in completion.choices[0].message.parsed.users]
+                        result = [u.__dict__ for u in completion.choices[0].message.parsed.users]
+                        # Verify and cross-examine
+                        verified = [u for u in result if verify_extracted_user_source(u, chunk_text)]
+                        if verified:
+                            if not cross_examine_extracted_users(current_client, model, chunk_text, verified):
+                                log.warning("Simple Batch %d failed cross-examination. Returning empty list to prevent hallucinations.", batch_idx)
+                                return []
+                        return verified
                     except Exception as e:
                         log.warning("PDF/Word Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
                         err_str = str(e).lower()

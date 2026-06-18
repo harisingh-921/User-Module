@@ -296,7 +296,7 @@ def _render_grid_controls(df, grid_response, navigation, api_key):
 def _render_download(df, grid_response, navigation):
     """Cached Excel export and download button."""
     # Sync back to segregation_dfs if in Both mode
-    if navigation == "Both":
+    if navigation == "Both (Segregation New & Existing Users)":
         if 'segregation_view_choice' in st.session_state and 'segregation_dfs' in st.session_state:
             current_choice = st.session_state['segregation_view_choice']
             st.session_state.df_users = grid_response['data'].copy()
@@ -304,7 +304,7 @@ def _render_download(df, grid_response, navigation):
             st.session_state['segregation_dfs'][current_choice] = st.session_state.df_users.copy()
             _update_users_hash()
 
-    if navigation == "Both" and 'segregation_dfs' in st.session_state:
+    if navigation == "Both (Segregation New & Existing Users)" and 'segregation_dfs' in st.session_state:
         _export_hash_key = str(st.session_state._df_users_hash) + "_both"
         if _export_hash_key not in st.session_state._excel_cache:
             from segregation.export import generate_segregation_workbook

@@ -82,3 +82,9 @@ class AISmartResponse(BaseModel):
     set_value_intent: Optional[SetValueIntent] = Field(None, description="Populate this only if the user wants to set a column to a fixed value")
     updates: Optional[List[RowUpdate]] = Field(None, description="Populate this list of specific row updates for all other edits")
 
+
+class VerificationResult(BaseModel):
+    is_hallucinated: bool = Field(description="Set to True if any of the extracted users do not actually exist in the source text, or if their details are fabricated.")
+    reason: Optional[str] = Field(None, description="The reason for the hallucination flag, indicating which field or record is invalid.")
+
+
