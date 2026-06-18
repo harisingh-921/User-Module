@@ -11,6 +11,7 @@ import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
 from utils.common import detect_duplicates_in_df
+from models.dataframe_contract import enforce_contract
 from utils.history import (
     _compute_ai_diff, _df_hash, _recalculate_duplicates, _update_users_hash,
     _save_snapshot, _save_cell_diff, _pop_undo, _pop_redo
@@ -172,7 +173,7 @@ def render_data_grid(df: pd.DataFrame, navigation: str, api_key: str):
             new_cleaned  = new_data[watch_cols].astype(object).fillna("").reset_index(drop=True)
             if not curr_cleaned.equals(new_cleaned):
                 _save_cell_diff(df, new_data)
-                st.session_state.df_users = new_data
+                st.session_state.df_users = enforce_contract(new_data)
                 _recalculate_duplicates()
                 st.session_state._df_users_hash = new_hash
                 st.rerun()
@@ -254,7 +255,7 @@ def _render_grid_controls(df, grid_response, navigation, api_key):
 
     if c_save.button("💾 SAVE AND VALIDATE", type="primary", width="stretch"):
         grid_data = grid_response['data'].copy()
-        saved_df = grid_data
+        saved_df = enforce_contract(grid_data)
         if '::auto_unique_id::' in saved_df.columns:
             saved_df = saved_df.drop(columns=['::auto_unique_id::'])
         if '#' in saved_df.columns:
@@ -299,7 +300,7 @@ def _render_download(df, grid_response, navigation):
     if navigation == "Both (Segregation New & Existing Users)":
         if 'segregation_view_choice' in st.session_state and 'segregation_dfs' in st.session_state:
             current_choice = st.session_state['segregation_view_choice']
-            st.session_state.df_users = grid_response['data'].copy()
+            st.session_state.df_users = enforce_contract(grid_response['data'])
             _recalculate_duplicates()
             st.session_state['segregation_dfs'][current_choice] = st.session_state.df_users.copy()
             _update_users_hash()

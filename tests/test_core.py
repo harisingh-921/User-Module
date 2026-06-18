@@ -461,6 +461,40 @@ def test_cross_examine_extracted_users():
     assert res_exception is True
 
 
+def test_enforce_contract_type_safety():
+    from models.dataframe_contract import enforce_contract
+    import numpy as np
+    
+    # Test data frame with various mixed/numeric types
+    data = {
+        "phone": [9376950533, "8521766053", 9588060430.0, np.nan, None],
+        "employeeId": [1035605, "EMP002", np.nan, None, 12345.0],
+        "userName": ["testuser", "nan", None, "None", "normal"]
+    }
+    df = pd.DataFrame(data)
+    result = enforce_contract(df)
+    
+    # Assert type normalization to string
+    assert result.at[0, "phone"] == "9376950533"
+    assert result.at[1, "phone"] == "8521766053"
+    assert result.at[2, "phone"] == "9588060430"
+    assert result.at[3, "phone"] == ""
+    assert result.at[4, "phone"] == ""
+    
+    assert result.at[0, "employeeId"] == "1035605"
+    assert result.at[1, "employeeId"] == "EMP002"
+    assert result.at[2, "employeeId"] == ""
+    assert result.at[3, "employeeId"] == ""
+    assert result.at[4, "employeeId"] == "12345"
+    
+    assert result.at[0, "userName"] == "testuser"
+    assert result.at[1, "userName"] == ""
+    assert result.at[2, "userName"] == ""
+    assert result.at[3, "userName"] == ""
+    assert result.at[4, "userName"] == "normal"
+
+
+
 
 
 

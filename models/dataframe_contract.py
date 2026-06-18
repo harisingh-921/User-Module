@@ -75,9 +75,31 @@ def enforce_contract(df: pd.DataFrame) -> pd.DataFrame:
     if rename_map:
         result = result.rename(columns=rename_map)
 
-    # Step 2: Add missing canonical columns as empty strings
+    # Step 2: Add missing canonical columns as empty strings, and ensure all are cast to string safely
+    def _safe_str(val) -> str:
+        if pd.isna(val) or val is None:
+            return ""
+        if isinstance(val, float):
+            if val.is_integer():
+                return str(int(val))
+            return str(val)
+        val_str = str(val).strip()
+        if val_str.lower() in ("nan", "none", "<na>"):
+            return ""
+        if val_str.endswith(".0"):
+            try:
+                f_val = float(val_str)
+                if f_val.is_integer():
+                    return str(int(f_val))
+            except ValueError:
+                pass
+        return val_str
+
     for col in USER_MASTER_COLS:
         if col not in result.columns:
             result[col] = ""
+        else:
+            result[col] = result[col].apply(_safe_str)
 
     return result
+
