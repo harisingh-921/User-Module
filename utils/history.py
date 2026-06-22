@@ -146,6 +146,8 @@ def _save_snapshot(df: pd.DataFrame) -> None:
 
 def _pop_undo(current_df: pd.DataFrame):
     """Pop the top of undo_stack, push to redo_stack, return restored DataFrame."""
+    if not st.session_state.undo_stack:
+        return current_df
     entry = st.session_state.undo_stack.pop()
     # Save current state to redo before restoring
     if entry['kind'] == 'diff':
@@ -162,6 +164,8 @@ def _pop_undo(current_df: pd.DataFrame):
 
 def _pop_redo(current_df: pd.DataFrame):
     """Pop the top of redo_stack, push to undo_stack, return restored DataFrame."""
+    if not st.session_state.redo_stack:
+        return current_df
     entry = st.session_state.redo_stack.pop()
     if entry['kind'] == 'diff':
         _push_diff(st.session_state.undo_stack,

@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 
 class UserField(BaseModel):
     userName: Optional[str] = Field(None, description="System username")
-    password: Optional[str] = Field("Medblaze@123", description="Initial password")
+    password: Optional[str] = Field(None, description="Initial password")
     departments: Optional[str] = Field(None, description="Pipe-separated departments")
     roles: Optional[str] = Field(None, description="Pipe-separated roles")
     units: Optional[str] = Field(None, description="Assigned units")
@@ -22,6 +22,7 @@ class UserField(BaseModel):
     lastWorkingDate: Optional[str] = Field(None, description="Last working date")
     reportingTo: Optional[str] = Field(None, description="Manager username or ID")
     isEnabled: Optional[str] = Field("Yes", description="Account status (Yes/No)")
+    passwordPolicy: Optional[str] = Field(None, description="Password policy constraint")
 
 class UserMasterResult(BaseModel):
     document_name: str

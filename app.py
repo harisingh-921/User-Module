@@ -10,6 +10,7 @@ import streamlit as st
 import pandas as pd
 import os
 import logging
+import toml
 
 logging.basicConfig(
     level=logging.INFO,
@@ -50,30 +51,30 @@ from ui.sidebar import render_sidebar
 navigation = render_sidebar()
 
 # --- NAVIGATION SWITCH CONFIRMATION ---
-if "previous_nav" not in st.session_state:
+def confirm_switch_callback():
+    # Clear all data keys
+    for key in ['df_users', 'segregation_dfs', 'segregation_view_choice', 'prev_segregation_view_choice', 'uploaded_files', '_df_users_hash', '_ai_preview']:
+        if key in st.session_state:
+            del st.session_state[key]
+    if "pending_nav" in st.session_state:
+        pending = st.session_state.pending_nav
+        st.session_state.previous_nav = pending
+        st.session_state.nav_radio_key = pending
+        del st.session_state.pending_nav
+
+def cancel_switch_callback():
+    if "pending_nav" in st.session_state:
+        del st.session_state["pending_nav"]
+
+if "pending_nav" in st.session_state:
+    pending = st.session_state.pending_nav
+    st.warning(f"⚠️ **Warning**: You are switching from **{st.session_state.previous_nav}** to **{pending}**. This will clear your current table and session data.")
+    col_yes, col_no = st.columns(2)
+    col_yes.button("✅ Yes, Switch & Reset Data", type="primary", use_container_width=True, on_click=confirm_switch_callback)
+    col_no.button("❌ No, Keep My Data", use_container_width=True, on_click=cancel_switch_callback)
+    st.stop()
+else:
     st.session_state.previous_nav = navigation
-
-has_active_data = 'df_users' in st.session_state or 'segregation_dfs' in st.session_state
-
-if navigation != st.session_state.previous_nav:
-    if has_active_data:
-        st.warning(f"⚠️ **Warning**: You are switching from **{st.session_state.previous_nav}** to **{navigation}**. This will clear your current table and session data.")
-        col_yes, col_no = st.columns(2)
-        if col_yes.button("✅ Yes, Switch & Reset Data", type="primary", use_container_width=True):
-            # Clear all data keys
-            for key in ['df_users', 'segregation_dfs', 'segregation_view_choice', 'prev_segregation_view_choice', 'uploaded_files', '_df_users_hash', '_ai_preview']:
-                if key in st.session_state:
-                    del st.session_state[key]
-            st.session_state.previous_nav = navigation
-            st.rerun()
-        if col_no.button("❌ No, Keep My Data", use_container_width=True):
-            # Revert the radio selection
-            st.session_state.nav_radio_key = st.session_state.previous_nav
-            st.rerun()
-        st.stop()
-    else:
-        # No data to lose, switch immediately
-        st.session_state.previous_nav = navigation
 
 # --- MAIN LOGIC ---
 srcs = None
@@ -121,7 +122,6 @@ elif navigation == "Both (Segregation New & Existing Users)":
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
     try:
-        import toml
         secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
         if os.path.exists(secrets_path):
             secrets_data = toml.load(secrets_path)
@@ -206,4 +206,7 @@ if 'df_users' in st.session_state:
     from ui.data_grid import render_data_grid
     render_data_grid(st.session_state['df_users'], navigation, api_key)
 else:
-    st.info("👋 Upload an Excel or CSV file in the sidebar to begin automated extraction.")
+    st.info("👋 Upload a file above to begin automated extraction.")
+
+# Reload trigger comment to refresh streamlit app state
+

@@ -16,8 +16,8 @@ def test_validate_master_data_empty():
 def test_validate_master_data_valid():
     """Verify clean DataFrame passes validation."""
     data = [
-        {"#": 1, "userName": "johndoe", "email": "john@example.com", "mobile": "+123456789"},
-        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "mobile": "9876543210"}
+        {"#": 1, "userName": "johndoe", "email": "john@example.com", "phone": "+123456789"},
+        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "phone": "9876543210"}
     ]
     df = pd.DataFrame(data)
     errors, warnings = validate_master_data(df)
@@ -461,6 +461,456 @@ def test_cross_examine_extracted_users():
     assert res_exception is True
 
 
+def test_local_extraction_subheaders_and_contacts():
+    import io
+    from extraction.local import local_extract_users
+
+    # Mock Excel sheet mimicking subheaders, multiple emails/phones and multiple roles columns
+    data = [
+        ["Unit Name", "Jaipur", "", "User Name", "", "", "", "", "", "", "", ""],
+        ["", "Audit USER", "Suggested User", "First Name", "Middle Name", "Last Name", "Employee Id", "Designation", "Departments", "Email", "Mobile", "Third Party Username (Name as in email)"],
+        ["", "Audit User - CESC - SSI", "ICN", "Sarita", "", "", "180783", "ICN", "Infection Control", "icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM", "9376950533 | 7023701893 | 3", "icn.jaipur | vidhya.kanwar"],
+        ["", "Audit User - CESC - CLABSI", "ICN", "Vidhya", "", "Kanwar", "221020", "ICN", "Infection Control", "icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM", "9376950533 | 7023701893 | 3", "icn.jaipur | vidhya.kanwar"],
+        ["", "Audit User - MOS - Prevention of CLABSI", "ICN", "Sarita", "", "", "180783", "ICN", "Infection Control", "icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM", "9376950533 | 7023701893 | 3", "icn.jaipur | vidhya.kanwar"]
+    ]
+
+    df = pd.DataFrame(data)
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, header=False, sheet_name="Sheet1")
+    towrite.seek(0)
+    file_bytes = towrite.read()
+
+    res = local_extract_users(file_bytes, "test.xlsx", pass_prefix="Med")
+    assert not res.empty
+    assert len(res) == 2
+    
+    sarita = res[res['firstName'] == 'Sarita'].iloc[0]
+    assert sarita['lastName'] == ''
+    assert sarita['email'] == 'icn.jaipur@fortishealthcare.com'
+    assert sarita['phone'] == '9376950533'
+    assert sarita['thirdPartyUsername'] == 'icn.jaipur'
+    assert 'Audit User - CESC - SSI' in sarita['roles']
+    assert 'Audit User - MOS - Prevention of CLABSI' in sarita['roles']
+    assert 'ICN' not in sarita['roles']
+    
+    vidhya = res[res['firstName'] == 'Vidhya'].iloc[0]
+    assert vidhya['lastName'] == 'Kanwar'
+    assert vidhya['email'].lower() == 'vidhya.kanwar@fortishealthcare.com'
+    assert vidhya['phone'] == '7023701893'
+    assert vidhya['thirdPartyUsername'] == 'vidhya.kanwar'
+    assert 'Audit User - CESC - CLABSI' in vidhya['roles']
+    assert 'ICN' not in vidhya['roles']
+
+
+def test_merge_double_pass_keeps_different_employee_ids():
+    from extraction.merge import _merge_duplicate_users
+    import pandas as pd
+    
+    # Mock data where two different employees share the same username (e.g. vidhyakanwar)
+    data = [
+        {
+            "employeeId": "EMP001",
+            "firstName": "Vidhya",
+            "lastName": "Kanwar",
+            "userName": "vidhyakanwar",
+            "email": "vidhya@fortis.com",
+            "phone": "9999999999",
+            "roles": "ICN"
+        },
+        {
+            "employeeId": "EMP002",
+            "firstName": "Sarita",
+            "lastName": "Devi",
+            "userName": "vidhyakanwar",  # Colliding username
+            "email": "sarita@fortis.com",
+            "phone": "8888888888",
+            "roles": "Audit User"
+        }
+    ]
+    df = pd.DataFrame(data)
+    res = _merge_duplicate_users(df, pass_prefix="Med")
+    
+    # They should NOT be merged since they have different non-empty employee IDs
+    assert len(res) == 2
+    
+    emp1 = res[res['employeeId'] == 'EMP001'].iloc[0]
+    assert emp1['firstName'] == 'Vidhya'
+    
+    emp2 = res[res['employeeId'] == 'EMP002'].iloc[0]
+    assert emp2['firstName'] == 'Sarita'
+
+
+def test_construct_username_with_prefixes():
+    from extraction.merge import _merge_duplicate_users
+    import pandas as pd
+    
+    # Test prefix handling in construct_username
+    data = [
+        {
+            "employeeId": "EMP010",
+            "firstName": "Dr. Nivedita",
+            "lastName": "Sharma",
+            "userName": "",
+            "roles": "Med Admin"
+        },
+        {
+            "employeeId": "EMP011",
+            "firstName": "Mr. Tanveer",
+            "lastName": "Kumawat",
+            "userName": "",
+            "roles": "OT Manager"
+        },
+        {
+            "employeeId": "EMP012",
+            "firstName": "Priyodarshini Manisha",  # No prefix, should split on space
+            "lastName": "Saha",
+            "userName": "",
+            "roles": "Doctor"
+        }
+    ]
+    df = pd.DataFrame(data)
+    res = _merge_duplicate_users(df, pass_prefix="Med")
+    
+    nivedita = res[res['employeeId'] == 'EMP010'].iloc[0]
+    assert nivedita['userName'] == 'drniveditasharma'
+    
+    tanveer = res[res['employeeId'] == 'EMP011'].iloc[0]
+    assert tanveer['userName'] == 'mrtanveerkumawat'
+    
+    priyodarshini = res[res['employeeId'] == 'EMP012'].iloc[0]
+    assert priyodarshini['userName'] == 'priyodarshinisaha'
+
+
+def test_local_extraction_roles_merging_for_doctors():
+    import io
+    from extraction.local import local_extract_users
+
+    data = [
+        ["Unit Name", "Jaipur", "", "", "", "", "", "", "", "", ""],
+        ["Audit USER", "Suggested User", "First Name", "Middle Name", "Last Name", "Third party/ AD username", "Email Address", "Phone", "Designation", "Roles", "Department"],
+        ["Audit User - CESC - Death within 48 hours of surgery", "Med Admin / Nursing", "Dr. Nivedita", "", "Sharma", "nivedita.sharma", "nivedita.sharma@FORTISHEALTHCARE.COM", "9588060430", "AMS", "", "Medical Admin"],
+        ["Audit User - CESC - Death within 48 hours of Procedure", "Med Admin / Nursing", "Dr. Nivedita", "", "Sharma", "nivedita.sharma", "nivedita.sharma@FORTISHEALTHCARE.COM", "9588060430", "AMS", "", "Medical Admin"],
+        ["Audit User - CESC - VTE", "Med Admin", "Dr. Nivedita", "", "Sharma", "nivedita.sharma", "nivedita.sharma@FORTISHEALTHCARE.COM", "9588060430", "AMS", "", "Medical Admin"]
+    ]
+
+    df = pd.DataFrame(data)
+    towrite = io.BytesIO()
+    with pd.ExcelWriter(towrite, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, header=False, sheet_name="Sheet1")
+    towrite.seek(0)
+    file_bytes = towrite.read()
+
+    res = local_extract_users(file_bytes, "test.xlsx", pass_prefix="Med")
+    assert not res.empty
+    assert len(res) == 1
+    
+    nivedita = res.iloc[0]
+    assert nivedita['userName'] == 'drniveditasharma'
+    
+    # Assert all roles from columns and rows are merged
+    roles = nivedita['roles'].split('|')
+    assert 'Audit User - CESC - Death within 48 hours of surgery' in roles
+    assert 'Med Admin / Nursing' not in roles
+    assert 'Audit User - CESC - Death within 48 hours of Procedure' in roles
+    assert 'Audit User - CESC - VTE' in roles
+    assert 'Med Admin' not in roles
+
+
+def test_resolve_duplicate_usernames():
+    from utils.common import resolve_duplicate_usernames
+
+    df = pd.DataFrame([
+        {"#": 1, "userName": "arvindkumar"},
+        {"#": 2, "userName": "Arvindkumar"},  # duplicate -> Arvindkumar2 (since arvindkumar1 exists at #4)
+        {"#": 3, "userName": "drarvindkumar"},  # substring, not duplicate
+        {"#": 4, "userName": "arvindkumar1"},  # already exists, keeps original
+        {"#": 5, "userName": "arvindkumar"},  # duplicate -> arvindkumar3 (since 1 and 2 are taken)
+        {"#": 6, "userName": "johndoe"},
+        {"#": 7, "userName": ""},
+        {"#": 8, "userName": None}
+    ])
+
+    res_df, count = resolve_duplicate_usernames(df)
+
+    assert count == 2
+    assert res_df.loc[0, "userName"] == "arvindkumar"
+    assert res_df.loc[1, "userName"] == "Arvindkumar2"
+    assert res_df.loc[2, "userName"] == "drarvindkumar"
+    assert res_df.loc[3, "userName"] == "arvindkumar1"
+    assert res_df.loc[4, "userName"] == "arvindkumar3"
+    assert res_df.loc[5, "userName"] == "johndoe"
+    assert res_df.loc[6, "userName"] == ""
+    assert res_df.loc[7, "userName"] is None
+
+
+def test_on_nav_change_no_active_data():
+    """Verify on_nav_change switches previous_nav immediately when there is no active data."""
+    import streamlit as st
+    from ui.sidebar import on_nav_change
+    
+    st.session_state.clear()
+    st.session_state.previous_nav = "Both (Segregation New & Existing Users)"
+    st.session_state.nav_radio_key = "New User"
+    
+    on_nav_change()
+    
+    assert st.session_state.previous_nav == "New User"
+    assert "pending_nav" not in st.session_state
+
+
+def test_on_nav_change_with_active_data():
+    """Verify on_nav_change sets pending_nav and reverts nav_radio_key when active data is present."""
+    import streamlit as st
+    from ui.sidebar import on_nav_change
+    
+    st.session_state.clear()
+    st.session_state.df_users = pd.DataFrame([{"userName": "johndoe"}])
+    st.session_state.previous_nav = "Both (Segregation New & Existing Users)"
+    st.session_state.nav_radio_key = "New User"
+    
+    on_nav_change()
+    
+    assert st.session_state.pending_nav == "New User"
+    assert st.session_state.nav_radio_key == "Both (Segregation New & Existing Users)"
+
+
+
+
+
+# ── enforce_contract tests ────────────────────────────────────────────────────
+
+def test_enforce_contract_renames_aliases():
+    """enforce_contract must rename all known column aliases to their canonical names."""
+    from models.dataframe_contract import enforce_contract
+
+    df = pd.DataFrame([{
+        "mobile": "9999999999",
+        "Email": "user@example.com",
+        "username": "jdoe",
+        "first_name": "John",
+        "last_name": "Doe",
+        "EmployeeID": "EMP001",
+        "department": "ICU",
+    }])
+    result = enforce_contract(df)
+
+    # Aliases renamed
+    assert "phone" in result.columns,       "mobile → phone"
+    assert "mobile" not in result.columns
+    assert "email" in result.columns,       "Email → email"
+    assert "Email" not in result.columns
+    assert "userName" in result.columns,    "username → userName"
+    assert "firstName" in result.columns,   "first_name → firstName"
+    assert "lastName" in result.columns,    "last_name → lastName"
+    assert "employeeId" in result.columns,  "EmployeeID → employeeId"
+    assert "departments" in result.columns, "department → departments"
+
+
+def test_enforce_contract_adds_missing_columns():
+    """enforce_contract must add missing canonical columns as empty strings."""
+    from models.dataframe_contract import enforce_contract
+    from config.constants import USER_MASTER_COLS
+
+    df = pd.DataFrame([{"firstName": "Jane", "lastName": "Smith"}])
+    result = enforce_contract(df)
+
+    for col in USER_MASTER_COLS:
+        assert col in result.columns, f"Missing canonical column: {col}"
+        # Newly added columns should be empty string
+        if col not in ("firstName", "lastName"):
+            assert result.iloc[0][col] == "", f"Column '{col}' should default to ''"
+
+
+def test_enforce_contract_no_mutation():
+    """enforce_contract must not mutate the original DataFrame."""
+    from models.dataframe_contract import enforce_contract
+
+    original = pd.DataFrame([{"mobile": "9876543210", "firstName": "Alice"}])
+    original_cols = list(original.columns)
+    enforce_contract(original)
+    assert list(original.columns) == original_cols, "Original DataFrame was mutated"
+
+
+def test_enforce_contract_canonical_wins_over_alias():
+    """If both the canonical column and an alias already exist, the alias is NOT renamed (canonical wins)."""
+    from models.dataframe_contract import enforce_contract
+
+    df = pd.DataFrame([{"phone": "111", "mobile": "222", "firstName": "Bob"}])
+    result = enforce_contract(df)
+
+    # 'phone' already present — 'mobile' alias should not overwrite it
+    assert "phone" in result.columns
+    assert result.iloc[0]["phone"] == "111"
+
+
+def test_enforce_contract_empty_df_passes_through():
+    """enforce_contract must return an empty DataFrame unchanged when given one."""
+    from models.dataframe_contract import enforce_contract
+
+    df = pd.DataFrame()
+    result = enforce_contract(df)
+    assert result.empty
+
+
+# ── compare_users / segregation integration tests ────────────────────────────
+
+def test_compare_users_match_by_employee_id():
+    """compare_users correctly marks a row as 'Existing User' when employeeId matches."""
+    from segregation.core import compare_users
+
+    master_df = pd.DataFrame([
+        {"employeeId": "EMP001", "userName": "jdoe", "email": "john@example.com", "roles": "Admin"}
+    ])
+    client_df = pd.DataFrame([
+        {"employeeId": "EMP001", "email": "john@example.com"}
+    ])
+    priority_mappings = [
+        {"name": "Employee ID", "master_col": "employeeId", "client_col": "employeeId"},
+        {"name": "Email",       "master_col": "email",       "client_col": "email"},
+    ]
+
+    result = compare_users(client_df, master_df, priority_mappings)
+
+    assert len(result) == 1
+    assert result.iloc[0]["User Type"] == "Existing User"
+    assert result.iloc[0]["Matched By"] == "Employee ID"
+
+
+def test_compare_users_match_by_email_fallback():
+    """compare_users falls back to email match when employeeId is absent in client row."""
+    from segregation.core import compare_users
+
+    master_df = pd.DataFrame([
+        {"employeeId": "EMP002", "userName": "jsmith", "email": "jane@example.com", "roles": "Nurse"}
+    ])
+    client_df = pd.DataFrame([
+        {"employeeId": "", "email": "jane@example.com"}
+    ])
+    priority_mappings = [
+        {"name": "Employee ID", "master_col": "employeeId", "client_col": "employeeId"},
+        {"name": "Email",       "master_col": "email",       "client_col": "email"},
+    ]
+
+    result = compare_users(client_df, master_df, priority_mappings)
+
+    assert result.iloc[0]["User Type"] == "Existing User"
+    assert result.iloc[0]["Matched By"] == "Email"
+
+
+def test_compare_users_new_user_when_no_match():
+    """compare_users marks a row as 'New User' when neither employeeId nor email match."""
+    from segregation.core import compare_users
+
+    master_df = pd.DataFrame([
+        {"employeeId": "EMP003", "userName": "bob", "email": "bob@example.com"}
+    ])
+    client_df = pd.DataFrame([
+        {"employeeId": "EMP999", "email": "nobody@example.com"}
+    ])
+    priority_mappings = [
+        {"name": "Employee ID", "master_col": "employeeId", "client_col": "employeeId"},
+        {"name": "Email",       "master_col": "email",       "client_col": "email"},
+    ]
+
+    result = compare_users(client_df, master_df, priority_mappings)
+
+    assert result.iloc[0]["User Type"] == "New User"
+    assert result.iloc[0]["Match Status"] == "Not Matched"
+
+
+def test_compare_users_email_normalised_case_insensitive():
+    """compare_users normalises email to lowercase before matching."""
+    from segregation.core import compare_users
+
+    master_df = pd.DataFrame([{"employeeId": "", "email": "john@example.com"}])
+    client_df  = pd.DataFrame([{"employeeId": "", "email": "JOHN@EXAMPLE.COM"}])
+    priority_mappings = [
+        {"name": "Employee ID", "master_col": "employeeId", "client_col": "employeeId"},
+        {"name": "Email",       "master_col": "email",       "client_col": "email"},
+    ]
+
+    result = compare_users(client_df, master_df, priority_mappings)
+    assert result.iloc[0]["User Type"] == "Existing User"
+
+
+# ── local_extract_users edge-case tests ──────────────────────────────────────
+
+def test_local_extract_users_tick_roles():
+    """local_extract_users correctly picks tick-marked role columns and assigns them per user."""
+    import io
+    from extraction.local import local_extract_users
+
+    # Sheet with tick columns representing roles
+    data = [
+        ["First Name", "Last Name", "Employee ID", "Audit User",   "Incident Reporter", "QI Viewer"],
+        ["Alice",      "Brown",     "EMP301",       "✓",            "",                   "✓"],
+        ["Bob",        "Green",     "EMP302",       "",             "✓",                  "✓"],
+    ]
+    df = pd.DataFrame(data)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, header=False, sheet_name="Roles")
+    buf.seek(0)
+
+    result = local_extract_users(buf.read(), "test_ticks.xlsx", pass_prefix="Med")
+    assert not result.empty
+    assert len(result) == 2
+
+    alice = result[result['firstName'] == 'Alice'].iloc[0]
+    assert 'Audit User' in alice['roles']
+    assert 'QI Viewer' in alice['roles']
+    assert 'Incident Reporter' not in alice['roles']
+
+    bob = result[result['firstName'] == 'Bob'].iloc[0]
+    assert 'Incident Reporter' in bob['roles']
+    assert 'QI Viewer' in bob['roles']
+    assert 'Audit User' not in bob['roles']
+
+
+def test_local_extract_users_pipe_split_multi_user():
+    """local_extract_users splits pipe-delimited rows into individual user records."""
+    import io
+    from extraction.local import local_extract_users
+
+    data = [
+        ["First Name",          "Last Name",      "Employee ID",     "Email",                                       "Department"],
+        ["Alice | Bob",         "Smith | Jones",  "EMP401 | EMP402", "alice@example.com | bob@example.com",         "ICU"],
+    ]
+    df = pd.DataFrame(data)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, header=False, sheet_name="Sheet1")
+    buf.seek(0)
+
+    result = local_extract_users(buf.read(), "test_pipe.xlsx", pass_prefix="Med")
+    assert len(result) == 2
+
+    alice = result[result['firstName'] == 'Alice'].iloc[0]
+    assert alice['lastName'] == 'Smith'
+    assert alice['employeeId'] == 'EMP401'
+
+    bob = result[result['firstName'] == 'Bob'].iloc[0]
+    assert bob['lastName'] == 'Jones'
+    assert bob['employeeId'] == 'EMP402'
+    # Non-pipe column (Department) must NOT be copied to Bob
+    # (department goes to both since it has no pipe — that is the correct behaviour)
+    assert bob['departments'] == 'ICU'
+
+
+def test_local_extract_users_csv():
+    """local_extract_users handles CSV files the same as Excel."""
+    import io
+    from extraction.local import local_extract_users
+
+    csv_content = "First Name,Last Name,Employee ID,Email\nCarol,White,EMP501,carol@example.com\n"
+    file_bytes = csv_content.encode("utf-8")
+
+    result = local_extract_users(file_bytes, "test.csv", pass_prefix="Med")
+    assert not result.empty
+    carol = result[result['firstName'] == 'Carol'].iloc[0]
+    assert carol['employeeId'] == 'EMP501'
+    assert carol['email'] == 'carol@example.com'
 
 
 

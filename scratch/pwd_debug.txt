@@ -1,5 +1,0 @@
-is_new: True
-pass_prefix: SegPrefix
-Columns: ['User Type', 'employeeId', 'password', 'userName', 'roles', 'departments', 'units', 'locations', 'email', 'phone', 'firstName', 'middleName', 'lastName', 'designation', 'timezone', 'shiftDuration', 'thirdPartyUsername', 'dateOfJoining', 'lastWorkingDate', 'reportingTo', 'isEnabled', 'passwordPolicy']
-First 5 employeeId: ['EMP102', 'EMP103']
-First 5 password: ['ClientPass123', '']

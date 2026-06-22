@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
-from utils.common import detect_duplicates_in_df
+from utils.common import detect_duplicates_in_df, resolve_duplicate_usernames
 from utils.history import (
     _compute_ai_diff, _df_hash, _recalculate_duplicates, _update_users_hash,
     _save_snapshot, _save_cell_diff, _pop_undo, _pop_redo
@@ -189,7 +189,7 @@ def _render_grid_controls(df, grid_response, navigation, api_key):
     def _save_state():
         _save_snapshot(df)
 
-    c_add, c_del, c_u, c_r, c_save = st.columns([1, 1, 0.5, 0.5, 2])
+    c_add, c_del, c_dedup, c_u, c_r, c_save = st.columns([1.0, 1.0, 1.0, 0.5, 0.5, 2.0])
 
     if c_add.button("➕ ADD ROW", width="stretch"):
         _save_state()
@@ -233,6 +233,19 @@ def _render_grid_controls(df, grid_response, navigation, api_key):
             st.rerun()
         else:
             st.warning("Please select rows to delete.")
+
+    if c_dedup.button("✨ RESOLVE DUPLICATES", width="stretch", help="Make duplicate usernames unique by appending sequential numbers (e.g. arvindkumar1, arvindkumar2)."):
+        _save_state()
+        updated_df, resolved_count = resolve_duplicate_usernames(df)
+        if resolved_count > 0:
+            st.session_state.df_users = updated_df
+            _recalculate_duplicates()
+            _update_users_hash()
+            st.session_state.grid_key += 1
+            st.toast(f"✅ Successfully resolved {resolved_count} duplicate username(s)!", icon="✨")
+            st.rerun()
+        else:
+            st.toast("ℹ️ No duplicate usernames found to resolve.", icon="ℹ️")
 
     if c_u.button("↩️ Undo", help="Undoes bulk actions like Delete/AI. (Jumps to top)"):
         if st.session_state.get('undo_stack'):
@@ -346,7 +359,10 @@ def _render_download(df, grid_response, navigation):
 
             _buf = io.BytesIO()
             import pandas.io.formats.excel
-            pandas.io.formats.excel.ExcelFormatter.header_style = None
+            try:
+                pandas.io.formats.excel.ExcelFormatter.header_style = None
+            except (AttributeError, TypeError):
+                pass
 
             with pd.ExcelWriter(_buf, engine='xlsxwriter') as _writer:
                 _export_df.to_excel(_writer, index=False, sheet_name='Users')

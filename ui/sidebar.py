@@ -9,6 +9,17 @@ import os
 import streamlit as st
 
 
+def on_nav_change():
+    has_active_data = 'df_users' in st.session_state or 'segregation_dfs' in st.session_state
+    if has_active_data:
+        # Save the new selection the user just clicked
+        st.session_state.pending_nav = st.session_state.nav_radio_key
+        # Revert the widget's state immediately so it doesn't change visually yet
+        st.session_state.nav_radio_key = st.session_state.previous_nav
+    else:
+        st.session_state.previous_nav = st.session_state.nav_radio_key
+
+
 def render_sidebar():
     """Render the full sidebar. Returns the current navigation mode string."""
     with st.sidebar:
@@ -29,7 +40,12 @@ def render_sidebar():
         </div>
             """, unsafe_allow_html=True)
 
-        selected_nav = st.radio("Navigation Mode", ["New User", "Update User", "Both (Segregation New & Existing Users)"], key="nav_radio_key")
+        selected_nav = st.radio(
+            "Navigation Mode",
+            ["New User", "Update User", "Both (Segregation New & Existing Users)"],
+            key="nav_radio_key",
+            on_change=on_nav_change
+        )
         st.session_state.current_nav = selected_nav
         navigation = st.session_state.current_nav
 

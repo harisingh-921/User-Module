@@ -74,3 +74,53 @@ def detect_duplicates_in_df(df: pd.DataFrame) -> pd.DataFrame:
         df['_is_duplicate_username'] = False
     return df
 
+
+def resolve_duplicate_usernames(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """
+    Finds all duplicate values in the 'userName' column case-insensitively.
+    Keeps the first occurrence as is, and renames subsequent occurrences by appending
+    sequential numbers (1, 2, 3, etc.) to make them unique.
+    Guarantees no new collisions are introduced by checking against existing usernames.
+    Returns (updated_df, resolved_count).
+    """
+    df = df.copy()
+    if 'userName' not in df.columns or df.empty:
+        return df, 0
+    
+    # Track existing usernames to prevent naming collisions
+    existing_names = set(df['userName'].astype(str).str.strip().str.lower().tolist())
+    
+    clean_names = df['userName'].astype(str).str.strip()
+    lower_names = clean_names.str.lower()
+    
+    valid_names = clean_empty_series(lower_names).dropna()
+    counts = valid_names.value_counts()
+    duplicate_lowers = set(counts[counts > 1].index)
+    
+    seen_lowers = {}
+    resolved_count = 0
+    
+    for idx, row in df.iterrows():
+        val = str(row['userName']).strip()
+        if not val or val.lower() in ('nan', 'none', '-', 'na', 'n/a'):
+            continue
+        val_lower = val.lower()
+        if val_lower in duplicate_lowers:
+            if val_lower not in seen_lowers:
+                seen_lowers[val_lower] = 1
+            else:
+                suffix = seen_lowers[val_lower]
+                new_val = f"{val}{suffix}"
+                while new_val.lower() in existing_names:
+                    suffix += 1
+                    new_val = f"{val}{suffix}"
+                
+                seen_lowers[val_lower] = suffix + 1
+                existing_names.add(new_val.lower())
+                
+                df.at[idx, 'userName'] = new_val
+                resolved_count += 1
+                
+    return df, resolved_count
+
+
