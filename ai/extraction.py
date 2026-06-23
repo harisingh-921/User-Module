@@ -142,6 +142,11 @@ def get_openai_client(api_key):
     if not api_key:
         return None
     api_key_str = str(api_key).strip()
+    if api_key_str.startswith("AIzaSy"):
+        return OpenAI(
+            api_key=api_key_str,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
     return OpenAI(api_key=api_key_str)
 
 def probe_api_key(key):
@@ -459,7 +464,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     if not current_client:
                         continue
                     
-                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                    if current_key.startswith("AIzaSy"):
+                        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
+                    else:
+                        models_to_try = ["gpt-4o-mini", "gpt-4o"]
                         
                     for model in models_to_try:
                         try:
@@ -474,7 +482,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 temperature=0.0
                             )
                             result = [u.__dict__ for u in completion.choices[0].message.parsed.users]
-                            if not result and model == "gpt-4o-mini":
+                            if not result and model in ("gpt-4o-mini", "gemini-1.5-flash"):
                                 time.sleep(1)
                                 completion2 = current_client.chat.completions.parse(
                                     model=model,
@@ -590,7 +598,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 if not current_client:
                     continue
                 
-                models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                if current_key.startswith("AIzaSy"):
+                    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
+                else:
+                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
                     
                 for model in models_to_try:
                     try:
@@ -701,7 +712,8 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     last_error = "Unknown error"
     for attempt in range(AI_RETRY_ATTEMPTS):
         current_key = healthy_keys[attempt % len(healthy_keys)]
-        client = OpenAI(api_key=current_key)
+        client = get_openai_client(current_key)
+        model = "gemini-1.5-flash" if current_key.startswith("AIzaSy") else "gpt-4o-mini"
         try:
             completion = client.chat.completions.parse(
                 model=model,

@@ -636,11 +636,49 @@ def test_tick_marked_role_column_extraction():
     assert "Infection Control" in user2["roles"].split("|")
 
 
+def test_gemini_client_routing_by_key_prefix():
+    """Verify that get_openai_client properly routes Gemini and standard keys."""
+    from ai.extraction import get_openai_client
+    
+    # 1. Gemini Key (starts with AIzaSy)
+    gemini_key = "AIzaSyFakeKey12345"
+    client_gemini = get_openai_client(gemini_key)
+    assert client_gemini is not None
+    assert str(client_gemini.base_url) == "https://generativelanguage.googleapis.com/v1beta/openai/"
+    
+    # 2. Standard OpenAI Key (starts with sk- or anything else)
+    openai_key = "sk-fakeopenai12345"
+    client_openai = get_openai_client(openai_key)
+    assert client_openai is not None
+    assert "googleapis.com" not in str(client_openai.base_url)
 
 
-
-
-
-
-
-
+def test_gemini_model_selection_in_smart_context():
+    """Verify that smart context selection uses gemini-1.5-flash when a Gemini key is passed."""
+    from unittest.mock import MagicMock, patch
+    from ai.extraction import apply_ai_smart_context
+    from models.schemas import AISmartResponse
+    
+    df = pd.DataFrame([
+        {"#": 1, "userName": "testuser", "roles": "User"}
+    ])
+    
+    mock_response = MagicMock()
+    mock_parsed = AISmartResponse(
+        updates=[]
+    )
+    mock_response.choices[0].message.parsed = mock_parsed
+    
+    # We patch OpenAI and get_healthy_api_keys
+    with patch("ai.extraction.get_healthy_api_keys", return_value=["AIzaSyFakeKey"]):
+        with patch("ai.extraction.OpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            mock_client.chat.completions.parse.return_value = mock_response
+            
+            apply_ai_smart_context(df, "do nothing", "AIzaSyFakeKey")
+            
+            # Assert that the chat completions parse was called with the gemini-1.5-flash model
+            mock_client.chat.completions.parse.assert_called_once()
+            kwargs = mock_client.chat.completions.parse.call_args[1]
+            assert kwargs["model"] == "gemini-1.5-flash"
