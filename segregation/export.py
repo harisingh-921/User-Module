@@ -125,14 +125,14 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
         for col in USER_MASTER_COLS:
             master_col = f"master_{col}"
             if master_col in df.columns:
-                if col in ('email', 'phone'):
-                    def merge_email_phone(row):
+                if col in ('email', 'phone', 'departments', 'units'):
+                    def merge_fallback_columns(row):
                         m_val = row.get(master_col, '')
                         c_val = row.get(col, '')
                         if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
                             return m_val
                         return c_val if pd.notna(c_val) else ''
-                    df[col] = df.apply(merge_email_phone, axis=1)
+                    df[col] = df.apply(merge_fallback_columns, axis=1)
                 elif col == 'roles':
                     def merge_roles(row):
                         m_role = str(row.get(master_col, '')).strip()

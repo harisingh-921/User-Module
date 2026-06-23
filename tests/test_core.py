@@ -685,11 +685,11 @@ def test_gemini_model_selection_in_smart_context():
 
 
 def test_segregation_existing_user_restricted_merge():
-    """Verify that existing users merge only email/phone from client, keeping everything else exactly from master."""
+    """Verify that existing users merge only email/phone/roles/departments/units from client, keeping everything else exactly from master."""
     from segregation.export import format_segregation_results
     import pandas as pd
     
-    # Existing user with client data having values, but master data having blank names/roles/departments
+    # Existing user with client data having values, but master data having blank names/roles/departments/units
     client_data = [
         {
             "User Type": "Existing User",
@@ -701,6 +701,7 @@ def test_segregation_existing_user_restricted_merge():
             "phone": "9876543210",
             "roles": "Admin",
             "departments": "IT",
+            "units": "Panchkula",
             "master_employeeId": "EMP101",
             "master_userName": "testuser",
             "master_firstName": "",  # Empty name in master
@@ -709,6 +710,7 @@ def test_segregation_existing_user_restricted_merge():
             "master_phone": "",      # Empty phone in master
             "master_roles": "",      # Empty roles in master
             "master_departments": "", # Empty departments in master
+            "master_units": "",       # Empty units in master
         }
     ]
     client_df = pd.DataFrame(client_data)
@@ -722,9 +724,10 @@ def test_segregation_existing_user_restricted_merge():
     # 1. Names and other columns must be kept exactly as blank from master file
     assert user["firstName"] == ""
     assert user["lastName"] == ""
-    assert user["departments"] == ""
     
-    # 2. Email, phone, and roles must fallback/merge from client file
+    # 2. Email, phone, roles, departments, and units must fallback/merge from client file
     assert user["email"] == "drpradeep@example.com"
     assert user["phone"] == "9876543210"
     assert user["roles"] == "Admin"
+    assert user["departments"] == "IT"
+    assert user["units"] == "Panchkula"
