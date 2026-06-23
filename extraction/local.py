@@ -399,7 +399,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                             user['employeeId'] = match.group(2).strip()
  
             # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
-            split_trigger_fields = ['firstName', 'lastName', 'userName', 'employeeId']
+            split_trigger_fields = ['firstName', 'lastName', 'employeeId']
             has_split_trigger = any('|' in user.get(f, '') for f in split_trigger_fields)
             
             if has_split_trigger:
