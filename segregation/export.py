@@ -121,7 +121,7 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     df[col] = ''
                     
         # Intelligent Merge for Existing Users
-        # Uses master data exactly, except for email and phone columns which can merge/fallback
+        # Uses master data exactly, except for email, phone, and roles columns which can merge/fallback
         for col in USER_MASTER_COLS:
             master_col = f"master_{col}"
             if master_col in df.columns:
@@ -133,6 +133,26 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                             return m_val
                         return c_val if pd.notna(c_val) else ''
                     df[col] = df.apply(merge_email_phone, axis=1)
+                elif col == 'roles':
+                    def merge_roles(row):
+                        m_role = str(row.get(master_col, '')).strip()
+                        c_role = str(row.get(col, '')).strip()
+                        if m_role.lower() == 'nan': m_role = ''
+                        if c_role.lower() == 'nan': c_role = ''
+                        
+                        # Clean spaces around '|' inside individual roles first
+                        m_role = "|".join([r.strip() for r in m_role.split('|') if r.strip()])
+                        c_role = "|".join([r.strip() for r in c_role.split('|') if r.strip()])
+                        
+                        if m_role and c_role and m_role.lower() != c_role.lower():
+                            if c_role.lower() not in m_role.lower():
+                                return f"{m_role}|{c_role}"
+                            return m_role
+                        elif m_role:
+                            return m_role
+                        else:
+                            return c_role
+                    df[col] = df.apply(merge_roles, axis=1)
                 else:
                     def keep_master_exactly(row):
                         m_val = row.get(master_col, '')

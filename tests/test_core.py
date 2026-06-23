@@ -722,9 +722,9 @@ def test_segregation_existing_user_restricted_merge():
     # 1. Names and other columns must be kept exactly as blank from master file
     assert user["firstName"] == ""
     assert user["lastName"] == ""
-    assert user["roles"] == ""
     assert user["departments"] == ""
     
-    # 2. Email and phone must fallback/merge from client file
+    # 2. Email, phone, and roles must fallback/merge from client file
     assert user["email"] == "drpradeep@example.com"
     assert user["phone"] == "9876543210"
+    assert user["roles"] == "Admin"
