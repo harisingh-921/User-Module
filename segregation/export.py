@@ -70,6 +70,31 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     if df[c_col].apply(has_value).any():
                         df[target_col] = df[c_col]
             
+        # Try to find and split Full Name if firstName is empty/missing
+        from utils.common import has_value
+        if 'firstName' not in df.columns or not df['firstName'].apply(has_value).any():
+            name_aliases = ('name', 'full name', 'fullname', 'staff name', 'employee name')
+            name_col = None
+            for col_name in df.columns:
+                if str(col_name).strip().lower() in name_aliases:
+                    name_col = col_name
+                    break
+            if name_col:
+                def extract_first_name(val):
+                    if pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                        return ""
+                    parts = str(val).strip().split()
+                    return parts[0] if parts else ""
+                
+                def extract_last_name(val):
+                    if pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                        return ""
+                    parts = str(val).strip().split()
+                    return " ".join(parts[1:]) if len(parts) >= 2 else ""
+
+                df['firstName'] = df[name_col].apply(extract_first_name)
+                df['lastName'] = df[name_col].apply(extract_last_name)
+
         # Fallbacks to capture incorrectly named columns from the client file
         fallbacks = SEMANTIC_MAPPINGS
         from utils.common import has_value

@@ -548,6 +548,38 @@ def test_no_merge_different_employee_ids():
     assert "Sarita" in users
 
 
+def test_segregation_full_name_fallback():
+    """Verify format_segregation_results detects and splits Employee Name when Username is not mapped."""
+    from segregation.export import format_segregation_results
+    
+    client_data = [
+        {
+            "User Type": "New User",
+            "Employee ID": "EMP999",
+            "Employee Name": "Rohit Kumar Singh",
+            "password": "",
+            "departments": "IT",
+            "roles": "Admin",
+            "units": "Delhi",
+            "locations": ""
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    priority_mappings = [
+        {"name": "Employee ID", "client_col": "Employee ID", "master_col": "Employee Id"}
+    ]
+    
+    results = format_segregation_results(client_df, priority_mappings)
+    new_users = results['New Users']
+    
+    assert len(new_users) == 1
+    user = new_users.iloc[0]
+    assert user["userName"] == "rohitkumarsingh"
+    assert user["firstName"] == "Rohit"
+    assert user["lastName"] == "Kumar Singh"
+
+
 
 
 
