@@ -580,6 +580,43 @@ def test_segregation_full_name_fallback():
     assert user["lastName"] == "Kumar Singh"
 
 
+def test_resolve_multi_value_fields_single_row():
+    """Verify that multi-value email, phone, and username fields are resolved using the user name."""
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "User Name,User Name|First Name,User Name|Last Name,User Name|Designation,User Name|Employee Id,User Name|Email,User Name|Mobile\n"
+        "Jaipur,Vidhya,Kanwar,ICN,221020,icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM,9376950533 |7023701893\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 1
+    user = df.iloc[0]
+    assert user["email"] == "vidhya.kanwar@FORTISHEALTHCARE.COM"
+    assert user["phone"] == "7023701893"
+
+
+def test_third_party_username_not_mapped_to_username():
+    """Verify that a column containing 'Third Party Username' is mapped to thirdPartyUsername, not userName."""
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "First Name,Last Name,Employee Id,Email,Mobile,Third Party Username (Name as in email ID)\n"
+        "Sarita,,180783,icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM,9376950533 | 7023701893,icn.jaipur| vidhya.kanwar\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 1
+    user = df.iloc[0]
+    assert user["firstName"] == "Sarita"
+    assert user["lastName"] == ""
+    assert user["userName"] == "sarita"  # constructed from first/last name
+    assert user["thirdPartyUsername"] == "icn.jaipur"  # resolved from the column
+
+
+
 
 
 
