@@ -580,6 +580,23 @@ def test_segregation_full_name_fallback():
     assert user["lastName"] == "Kumar Singh"
 
 
+def test_resolve_multi_value_fields_single_row():
+    """Verify that multi-value email, phone, and username fields are resolved using the user name."""
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "User Name,User Name|First Name,User Name|Last Name,User Name|Designation,User Name|Employee Id,User Name|Email,User Name|Mobile\n"
+        "Jaipur,Vidhya,Kanwar,ICN,221020,icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM,9376950533 |7023701893\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 1
+    user = df.iloc[0]
+    assert user["email"] == "vidhya.kanwar@FORTISHEALTHCARE.COM"
+    assert user["phone"] == "7023701893"
+
+
 
 
 
