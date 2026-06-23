@@ -31,7 +31,8 @@ from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import (
     get_all_api_keys, find_matching_excel_roles, filter_sheets_by_intent,
-    detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns
+    detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns,
+    build_temp_col_mapping
 )
 from utils.common import is_empty_value, has_value
 
@@ -365,28 +366,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 # --- Auto-detect header and sub-header row (aligned with local_extract_users) ---
                 header_row_idx = detect_header_row(raw_df)
 
-                headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
-                col_mapping_temp = {}
-                for target_field in ['firstName', 'lastName', 'employeeId', 'email']:
-                    tf_lower = target_field.lower()
-                    for src_col, src_lower in headers_lower_temp.items():
-                        if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
-                            col_mapping_temp[src_col] = target_field
-                            break
-                    else:
-                        aliases = {
-                            'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
-                            'email': ['e-mail', 'mail id', 'official email', 'email address'],
-                            'firstName': ['first name', 'fname', 'given name', 'name', 'employee name', 'staff name'],
-                        }.get(target_field, [])
-                        for alias in aliases:
-                            for src_col, src_lower in headers_lower_temp.items():
-                                if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
-                                    col_mapping_temp[src_col] = target_field
-                                    break
-                            if target_field in col_mapping_temp.values():
-                                break
-
+                headers_raw = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+                col_mapping_temp = build_temp_col_mapping(headers_raw)
                 is_sub_header = check_is_sub_header(raw_df, header_row_idx, col_mapping_temp)
                 headers = build_unique_headers(raw_df, header_row_idx, is_sub_header)
                 first_data_row = header_row_idx + 2 if is_sub_header else header_row_idx + 1
