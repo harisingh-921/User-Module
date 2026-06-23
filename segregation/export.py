@@ -301,8 +301,14 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
             # Create a text format for the cells
             text_format = workbook.add_format({'num_format': '@'})
 
-            # Set all column widths and apply Text format
-            worksheet.set_column(0, len(df_sheet.columns) - 1, 12, text_format)
+            # Set all column widths based on maximum string length in each column to auto-fit
+            for col_idx, col_name in enumerate(df_sheet.columns):
+                col_str_lengths = [len(str(val)) for val in df_sheet[col_name] if pd.notna(val)]
+                max_len = max(
+                    max(col_str_lengths) if col_str_lengths else 0,
+                    len(str(col_name))
+                ) + 2
+                worksheet.set_column(col_idx, col_idx, min(max_len, 50), text_format)
 
             # --- Highlight 1: full row pink for exact-clone duplicate rows ---
             if dup_full_indices:
