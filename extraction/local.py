@@ -386,7 +386,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             if role_cols:
                 assigned_roles = []
                 for rc_col, rc_name in role_cols.items():
-                    rv = str(row.iloc[rc_col] if rc_col < len(row) else '').strip()
+                    rv = str(row.get(rc_col, '')).strip()
                     # Check if the row has a valid tick in this role column
                     is_ticked = False
                     if 'module|' in rc_name.lower():

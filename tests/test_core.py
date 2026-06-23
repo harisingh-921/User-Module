@@ -616,6 +616,27 @@ def test_third_party_username_not_mapped_to_username():
     assert user["thirdPartyUsername"] == "icn.jaipur"  # resolved from the column
 
 
+def test_tick_marked_role_column_extraction():
+    """Verify that tick-marked role columns are correctly processed without raising TypeError."""
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "First Name,Last Name,Employee Id,Email,Mobile,Audit User,Infection Control\n"
+        "John,Doe,EMP001,john@example.com,9876543210,Y,\n"
+        "Jane,Smith,EMP002,jane@example.com,9876543211,,Y\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 2
+    user1 = df[df["employeeId"] == "EMP001"].iloc[0]
+    user2 = df[df["employeeId"] == "EMP002"].iloc[0]
+    
+    assert "Audit User" in user1["roles"].split("|")
+    assert "Infection Control" in user2["roles"].split("|")
+
+
+
 
 
 
