@@ -133,7 +133,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             tf_lower = target_field.lower()
             for src_col, src_lower in headers_lower_temp.items():
                 if src_col in col_mapping_temp: continue
-                if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
+                if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
                     col_mapping_temp[src_col] = target_field
                     break
             else:
@@ -141,7 +142,9 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     for alias in SEMANTIC_MAPPINGS[target_field]:
                         for src_col, src_lower in headers_lower_temp.items():
                             if src_col in col_mapping_temp: continue
-                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
+                            child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
                                 col_mapping_temp[src_col] = target_field
                                 break
                         if any(v == target_field for v in col_mapping_temp.values()):
@@ -156,12 +159,20 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                         'email': ['email', 'e-mail', 'mail'],
                         'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                        'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
                     }
                     if target_field in broad_keywords:
                         for kw in broad_keywords[target_field]:
                             for src_col, src_lower in headers_lower_temp.items():
                                 if src_col in col_mapping_temp: continue
-                                if kw in src_lower:
+                                child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                                child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                                
+                                # Prevent matching third party / AD columns to userName
+                                if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
+                                    continue
+                                    
+                                if kw in child_clean:
                                     col_mapping_temp[src_col] = target_field
                                     break
                             if any(v == target_field for v in col_mapping_temp.values()):
@@ -219,7 +230,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             for src_col, src_lower in headers_lower.items():
                 if src_col in col_mapping:
                     continue
-                if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
+                if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
                     col_mapping[src_col] = target_field
                     found = True
                     break
@@ -232,7 +244,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                             if src_col in col_mapping:
                                 continue
                             child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_part:
+                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
                                 col_mapping[src_col] = target_field
                                 found = True
                                 break
@@ -255,6 +268,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
                 'email': ['email', 'e-mail', 'mail'],
                 'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
             }
             if target_field in broad_keywords:
                 found = False
@@ -263,7 +277,13 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         if src_col in col_mapping:
                             continue
                         child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                        if kw in child_part:
+                        child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                        
+                        # Prevent matching third party / AD columns to userName
+                        if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
+                            continue
+                            
+                        if kw in child_clean:
                             col_mapping[src_col] = target_field
                             found = True
                             break
@@ -275,7 +295,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 for src_col, src_lower in headers_lower.items():
                     if src_col in col_mapping:
                         continue
-                    if src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
+                    src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
+                    if src_clean in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
                         col_mapping[src_col] = '_fullName'
                         break
         
