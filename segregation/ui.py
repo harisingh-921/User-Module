@@ -46,11 +46,11 @@ def render_segregation_ui():
     
     with col1:
         st.markdown("### Step 1: Client File")
-        client_file = st.file_uploader("Upload Client Config File", type=["xlsx", "xls", "csv"], key="client_file")
+        client_file = st.file_uploader("Upload Client Config File", key="client_file")
         
     with col2:
         st.markdown("### Step 2: Medblaze Master File")
-        master_file = st.file_uploader("Upload Medblaze User Master", type=["xlsx", "xls", "csv"], key="master_file")
+        master_file = st.file_uploader("Upload Medblaze User Master", key="master_file")
         
     if client_file and master_file:
         try:

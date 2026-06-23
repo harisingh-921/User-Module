@@ -22,7 +22,6 @@ def render_ai_assistant(df: pd.DataFrame, api_key: str, grid_response):
 
     mapping_file = st.file_uploader(
         "Upload Context/Mapping File (Optional)",
-        type=["xlsx", "xls", "csv"],
         key="ai_mapping_file",
         help="Upload a file with lookup data, such as mapping Client Departments to Medblaze Departments."
     )
