@@ -38,7 +38,7 @@ Below is the quality scorecard for the codebase, rated on a scale of 1 to 10 (wi
 | Dimension | Rating | Description & Rationale |
 | :--- | :---: | :--- |
 | **Performance** | **9.0 / 10** | High performance achieved via vectorized pandas masks in validation, ThreadPoolExecutor parallelization of batch API requests, and local programmatic mode fallbacks. |
-| **Maintainability** | **8.5 / 10** | Great structure separation. Modules like `models/` define schemas, `ui/` isolate streamlit components, and `utils/` contain shared logic. |
+| **Maintainability** | **9.6 / 10** | Great structure separation. Modules like `models/` define schemas, `ui/` isolate streamlit components, and `utils/` contain shared logic. De-duplicated column mapping loops by routing parsing logic through a unified helper in `extraction/utils.py`. |
 | **Robustness & Validation** | **9.0 / 10** | Strong schema validation using `models/dataframe_contract.py` (enforcing data type normalization and type-safety), dual-model LLM verification for hallucination checking, and centralized safety limit configurations. |
 | **Code Duplication** | **9.5 / 10** | High reuse of shared utilities in extraction/utils.py. The sub-header column mapping duplicates between local and AI extraction paths have been unified. |
 | **Security & Key Handling** | **9.8 / 10** | Great pre-flight API key check using a free endpoint list (`client.models.list()`) preventing token wastage. Standardized OS environment variable key fallbacks are fully supported, and Gemini keys are automatically routed to Google's OpenAI-compatible endpoint. Secrets files are securely excluded in `.gitignore`. |
@@ -70,8 +70,9 @@ Below is the quality scorecard for the codebase, rated on a scale of 1 to 10 (wi
 
 ## 4. Architectural Recommendations
 
-### 1. Unified Subheader Mapper Helper
-Move the `col_mapping_temp` detection logic from `local.py` and `ai/extraction.py` into a unified helper inside `extraction/utils.py`. Both modes should share the exact same alias dictionaries and pass criteria.
+### 🟢 Unified Subheader Mapper Helper (RESOLVED)
+- **Status**: **RESOLVED** (Commit `fcda750`)
+- **Description**: Moved the redundant column mapping loops from `local.py` to the centralized `build_temp_col_mapping` helper in `extraction/utils.py`. Both local and AI modes now share the exact same mapping alias dictionaries and matching rules.
 
 ### 🟢 Centralize Hardcoded Constraints (RESOLVED)
 - **Status**: **RESOLVED** (Commit `71f3cf7`)
