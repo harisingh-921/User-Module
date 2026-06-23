@@ -160,6 +160,18 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                             return ''
                         return str(m_val).strip()
                     df[col] = df.apply(keep_master_exactly, axis=1)
+
+                if not is_new and col in ('email', 'phone', 'departments', 'units', 'roles'):
+                    def check_if_updated(row):
+                        m_val = row.get(master_col, '')
+                        final_val = row.get(col, '')
+                        s_m = str(m_val).strip() if pd.notna(m_val) else ''
+                        s_f = str(final_val).strip() if pd.notna(final_val) else ''
+                        if s_m.lower() == 'nan': s_m = ''
+                        if s_f.lower() == 'nan': s_f = ''
+                        return s_m != s_f
+                    df[f"_is_updated_{col}"] = df.apply(check_if_updated, axis=1)
+                    
                     
         # Clean userName for new users: lowercase, no spaces, no special characters
         if is_new and 'userName' in df.columns:
@@ -220,8 +232,14 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
             
         df_final = df[final_cols].copy()
         
+        # Add updated flags for highlighting
+        for col in ('email', 'phone', 'departments', 'units', 'roles'):
+            up_col = f"_is_updated_{col}"
+            if up_col in df.columns:
+                df_final[up_col] = df[up_col].fillna(False).astype(bool)
+        
         # After mapping and stripping unmapped columns, drop any resulting exact clones
-        check_cols = [c for c in df_final.columns if c != '_is_duplicate_user']
+        check_cols = [c for c in df_final.columns if not str(c).startswith('_')]
         df_final = df_final.drop_duplicates(subset=check_cols, keep='first')
         
         # Since we just dropped exact clones, none of the remaining rows have exact clones in this dataframe!
@@ -261,14 +279,25 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
     new_dup_full_idx       = get_dup_full_indices(new_users)
     new_dup_uname_idx      = get_dup_uname_indices(new_users)
 
+    # Collect coordinates of updated cells for Existing Users (1-based row index)
+    existing_updated_cells = []
+    if not existing_users.empty:
+        excel_cols = [c for c in existing_users.columns if c != '#' and not str(c).startswith('_')]
+        for col in ('email', 'phone', 'departments', 'units', 'roles'):
+            up_col = f"_is_updated_{col}"
+            if up_col in existing_users.columns and col in excel_cols:
+                col_idx = excel_cols.index(col)
+                df_reset = existing_users.reset_index(drop=True)
+                for row_pos, val in enumerate(df_reset[up_col]):
+                    if str(val).strip().lower() in ('true', '1', 't'):
+                        cell_val = df_reset.at[row_pos, col]
+                        existing_updated_cells.append((row_pos + 1, col_idx, str(cell_val) if pd.notna(cell_val) else ''))
+
     # Drop internal columns before exporting to Excel
     for df in [existing_users, new_users]:
-        if '_is_duplicate_user' in df.columns:
-            df.drop(columns=['_is_duplicate_user'], inplace=True)
-        if '_is_duplicate_username' in df.columns:
-            df.drop(columns=['_is_duplicate_username'], inplace=True)
-        if '#' in df.columns:
-            df.drop(columns=['#'], inplace=True)
+        cols_to_drop = [c for c in df.columns if str(c).startswith('_') or c == '#']
+        if cols_to_drop:
+            df.drop(columns=cols_to_drop, inplace=True)
 
     # Write to Excel
     with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
@@ -277,6 +306,7 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
         duplicate_format  = workbook.add_format({'bg_color': '#FFC7CE'})
         uname_dup_format  = workbook.add_format({'bg_color': '#FFC7CE', 'num_format': '@'})
         header_format     = workbook.add_format()  # Plain format with no bold or borders
+        updated_format    = workbook.add_format({'bg_color': '#E8F5E9', 'font_color': '#2E7D32', 'num_format': '@'})
 
         # Prepare datasets with fallback messages
         sheets_data = [
@@ -325,6 +355,11 @@ def generate_segregation_workbook(dfs: dict) -> bytes:
                     xl_row   = row_pos + 1   # +1 for the manually-written header at row 0
                     cell_val = str(df_sheet_reset.at[row_pos, 'userName'])
                     worksheet.write(xl_row, uname_col_idx, cell_val, uname_dup_format)
+
+            # --- Highlight 3: soft green cell background for updated/merged columns (Existing Users only) ---
+            if sheet_name == 'Existing Users' and existing_updated_cells:
+                for xl_row, col_idx, cell_val in existing_updated_cells:
+                    worksheet.write(xl_row, col_idx, cell_val, updated_format)
 
     return buf.getvalue()
 

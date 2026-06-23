@@ -35,9 +35,11 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     # '#' always pinned left
     gb.configure_column("#", headerName="#", width=140, minWidth=120, maxWidth=180, pinned='left', editable=False,
                         checkboxSelection=True, headerCheckboxSelection=True, suppressMenu=True, filter=False)
-    # Hide duplicate flags
-    gb.configure_column("_is_duplicate_user", hide=True)
-    gb.configure_column("_is_duplicate_username", hide=True)
+    # Hide internal/utility columns
+    for c in df.columns:
+        if str(c).startswith('_'):
+            gb.configure_column(c, hide=True)
+
     # Hide all user cols not in visible selection
     for col in user_cols:
         if col not in visible_cols:
@@ -52,6 +54,15 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
                     }
                     return null;
                 }
+            """))
+        elif col in ("email", "phone", "departments", "units", "roles"):
+            gb.configure_column(col, cellStyle=JsCode(f"""
+                function(params) {{
+                    if (params.data && params.data._is_updated_{col} === true) {{
+                        return {{ 'background-color': '#e8f5e9', 'font-weight': 'bold' }};
+                    }}
+                    return null;
+                }}
             """))
 
     _is_large = len(df) > _LARGE_DATASET_ROWS

@@ -731,3 +731,51 @@ def test_segregation_existing_user_restricted_merge():
     assert user["roles"] == "Admin"
     assert user["departments"] == "IT"
     assert user["units"] == "Panchkula"
+
+
+def test_segregation_existing_user_highlight_flags():
+    """Verify that _is_updated_<col> flags are set correctly for merged columns of existing users."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "Existing User",
+            "employeeId": "EMP101",
+            "userName": "testuser",
+            "email": "drpradeep@example.com",  # Fell back (master was empty)
+            "phone": "9876543210",           # Identical to master
+            "roles": "Admin|Doctor",          # Merged with master role 'Admin' -> new value is Admin|Doctor
+            "departments": "IT",             # Fell back (master was empty)
+            "units": "",                     # Both empty
+            "master_employeeId": "EMP101",
+            "master_userName": "testuser",
+            "master_email": "",
+            "master_phone": "9876543210",
+            "master_roles": "Admin",
+            "master_departments": "",
+            "master_units": "",
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    results = format_segregation_results(client_df)
+    existing_users = results['Existing Users']
+
+    assert len(existing_users) == 1
+    user = existing_users.iloc[0]
+
+    # Email was blank in master, populated from client -> updated
+    assert user["_is_updated_email"] == True
+
+    # Phone was identical -> not updated
+    assert user["_is_updated_phone"] == False
+
+    # Roles was merged (Admin -> Admin|Doctor) -> updated
+    assert user["_is_updated_roles"] == True
+
+    # Departments was blank in master, populated from client -> updated
+    assert user["_is_updated_departments"] == True
+
+    # Units was blank in both -> not updated
+    assert user["_is_updated_units"] == False
+
