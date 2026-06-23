@@ -121,6 +121,9 @@ elif navigation == "Both (Segregation New & Existing Users)":
 # --- API KEY ---
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
 if not api_key:
+    import os
+    api_key = os.environ.get("OPENAI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
+if not api_key:
     try:
         secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
         if os.path.exists(secrets_path):

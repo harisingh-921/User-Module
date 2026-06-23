@@ -56,6 +56,16 @@ def get_all_api_keys(primary_key=None):
                 keys.append(val)
     except Exception:
         pass
+
+    # Load from OS environment variables
+    try:
+        import os
+        for k in ["OPENAI_API_KEY", "OPENAI_API_KEY_2", "OPENAI_API_KEY_3", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+            val = str(os.environ.get(k, "")).strip()
+            if val and val not in keys:
+                keys.append(val)
+    except Exception:
+        pass
         
     # Manual fallback: load from secrets.toml relative to this file's folder
     if not keys or len(keys) <= (1 if primary_key else 0):
