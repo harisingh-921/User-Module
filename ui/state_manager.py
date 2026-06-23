@@ -15,8 +15,11 @@ def init_session_state():
         "redo_stack":       [],
         "_df_users_hash":   None,
         "_ai_preview":      None,
+        "_ai_running":      None,          # background Future for AI smart command
+        "_ai_error":        None,          # error string from AI thread, if any
         "_excel_cache":     {},          # {hash: bytes}
         "current_nav":      "Both (Segregation New & Existing Users)",
+        "previous_nav":     "Both (Segregation New & Existing Users)",
         "nav_radio_key":    "Both (Segregation New & Existing Users)",
         "pass_prefix":      "Med",
         "user_intent":      "",

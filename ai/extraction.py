@@ -11,6 +11,7 @@ from openai import OpenAI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
+import re
 
 # Prevent Name Shadowing: If run directly, the current file 'extraction.py' conflicts 
 # with the 'extraction' package. We clean the path and modules dynamically.
@@ -24,11 +25,14 @@ if __name__ == "__main__" or sys.path[0].endswith("ai"):
     if 'extraction' in sys.modules and sys.modules['extraction'].__file__ == __file__:
         del sys.modules['extraction']
 
-from config.constants import USER_MASTER_COLS
+from config.constants import USER_MASTER_COLS, TICK_VALUES, ROLE_NEGATIVE_VALUES
 from models.schemas import UserMasterResult, AISmartResponse, RowUpdate, VerificationResult
 from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
-from extraction.utils import get_all_api_keys, find_matching_excel_roles
+from extraction.utils import (
+    get_all_api_keys, find_matching_excel_roles, filter_sheets_by_intent,
+    detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns
+)
 from utils.common import is_empty_value, has_value
 
 log = logging.getLogger(__name__)
@@ -333,7 +337,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         max_workers = min(len(healthy_keys) * 5, 5)
         log.info("Starting AI extraction. Healthy keys: %d, Workers: %d", len(healthy_keys), max_workers)
 
-        dynamic_prompt = USER_EXTRACTION_PROMPT.format(pass_prefix=pass_prefix)
+        dynamic_prompt = USER_EXTRACTION_PROMPT
         ext = filename.lower()
         
         if ext.endswith(('.xlsx', '.xls', '.csv')):
@@ -343,231 +347,100 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             else:
                 # Read ALL sheets — sheet_name=None returns {sheet_name: DataFrame}
                 all_sheets = pd.read_excel(io.BytesIO(file_bytes), header=None, sheet_name=None)
-                
-                # --- Filter sheets based on user intent (e.g. ignore sheet1) ---
-                if intent and isinstance(intent, str):
-                    intent_lower = intent.lower()
-                    filtered_sheets = {}
-                    for s_name, s_df in all_sheets.items():
-                        s_clean = s_name.lower().replace(' ', '')
-                        should_ignore = False
-                        
-                        import re
-                        ignore_matches = re.findall(r'(?:ignore|skip)\s*sheet\s*([0-9]+)', intent_lower)
-                        for num in ignore_matches:
-                            if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
-                                should_ignore = True
-                                break
-                                
-                        if should_ignore:
-                            continue
-                            
-                        only_matches = re.findall(r'only\s*sheet\s*([0-9]+)', intent_lower)
-                        if only_matches:
-                            matches_any_only = False
-                            for num in only_matches:
-                                if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
-                                    matches_any_only = True
-                                    break
-                            if not matches_any_only:
-                                continue
-                                
-                        filtered_sheets[s_name] = s_df
-                    sheet_dfs = filtered_sheets
-                else:
-                    sheet_dfs = all_sheets
+                sheet_dfs = filter_sheets_by_intent(all_sheets, intent)
                 st.toast(f"📋 Found {len(sheet_dfs)} sheet(s): {', '.join(sheet_dfs.keys())}")
-            
+
             # We collect all chunks across all sheets, each with its own correct header context
             all_chunks_to_process = []
-            
-            global_excel_rows_data = []
             has_tick_role_columns = False
-            
+            global_excel_rows_data = []
+
             for sheet_name, raw_df in sheet_dfs.items():
-                raw_df = raw_df.dropna(how='all')
+                raw_df = raw_df.dropna(how='all').reset_index(drop=True)
                 mask = raw_df.astype(str).apply(lambda x: x.str.contains(r'[a-zA-Z0-9]', na=False)).any(axis=1)
                 raw_df = raw_df[mask].reset_index(drop=True)
-                if raw_df.empty: continue
-                
-                str_df = raw_df.astype(str).map(lambda x: str(x).strip())
-                
-                # --- Improved Auto-detect header and sub-header row (aligned exactly with local_extract_users) ---
-                header_row_idx = 0
-                max_matches = 0
-                for idx, row in str_df.iterrows():
-                    vals = row.str.lower().tolist()
-                    header_keywords = ['name', 'email', 'employee', 'id', 'mobile', 'phone', 
-                                     'department', 'unit', 'role', 'designation', 'staff',
-                                     'first', 'last', 'username', 'password']
-                    matches = sum(1 for v in vals if any(kw in str(v).lower() for kw in header_keywords))
-                    if matches > max_matches:
-                        max_matches = matches
-                        header_row_idx = idx
-                    if matches >= 5:
-                        break
-                
-                is_sub_header = False
-                if header_row_idx + 1 < len(raw_df):
-                    next_row = raw_df.iloc[header_row_idx + 1]
-                    name_email_empty = True
-                    
-                    headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
-                    col_mapping_temp = {}
-                    for target_field in ['firstName', 'lastName', 'employeeId', 'email']:
-                        tf_lower = target_field.lower()
-                        for src_col, src_lower in headers_lower_temp.items():
-                            if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
-                                col_mapping_temp[src_col] = target_field
-                                break
-                        else:
-                            aliases = {
-                                'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
-                                'email': ['e-mail', 'mail id', 'official email', 'email address'],
-                                'firstName': ['first name', 'fname', 'given name', 'name', 'employee name', 'staff name'],
-                            }.get(target_field, [])
-                            for alias in aliases:
-                                for src_col, src_lower in headers_lower_temp.items():
-                                    if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
-                                        col_mapping_temp[src_col] = target_field
-                                        break
-                                if target_field in col_mapping_temp.values():
-                                    break
+                if raw_df.empty:
+                    continue
 
-                    for src_col, target_field in col_mapping_temp.items():
-                        col_index = raw_df.iloc[header_row_idx].tolist().index(src_col)
-                        val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
-                        if has_value(val):
-                            name_email_empty = False
+                # --- Auto-detect header and sub-header row (aligned with local_extract_users) ---
+                header_row_idx = detect_header_row(raw_df)
+
+                headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
+                col_mapping_temp = {}
+                for target_field in ['firstName', 'lastName', 'employeeId', 'email']:
+                    tf_lower = target_field.lower()
+                    for src_col, src_lower in headers_lower_temp.items():
+                        if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                            col_mapping_temp[src_col] = target_field
                             break
-                    
-                    text_cells = sum(1 for v in next_row.values if has_value(v))
-                    if name_email_empty and text_cells >= 2:
-                        is_sub_header = True
+                    else:
+                        aliases = {
+                            'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
+                            'email': ['e-mail', 'mail id', 'official email', 'email address'],
+                            'firstName': ['first name', 'fname', 'given name', 'name', 'employee name', 'staff name'],
+                        }.get(target_field, [])
+                        for alias in aliases:
+                            for src_col, src_lower in headers_lower_temp.items():
+                                if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
+                                    col_mapping_temp[src_col] = target_field
+                                    break
+                            if target_field in col_mapping_temp.values():
+                                break
 
+                is_sub_header = check_is_sub_header(raw_df, header_row_idx, col_mapping_temp)
+                headers = build_unique_headers(raw_df, header_row_idx, is_sub_header)
                 first_data_row = header_row_idx + 2 if is_sub_header else header_row_idx + 1
                 header_rows_df = raw_df.iloc[:first_data_row]
                 data_rows_df = raw_df.iloc[first_data_row:]
-                
+
                 def row_to_str(row):
-                    return " ; ".join([str(v).strip().replace(';', ',') if str(v).strip().lower() not in ('nan','none','') else '-' for v in row.values])
-                
+                    return " ; ".join([str(v).strip().replace(';', ',') if str(v).strip().lower() not in ('nan', 'none', '') else '-' for v in row.values])
+
                 sheet_header_context = f"COLUMN HEADERS (from '{sheet_name}'):\n" + "\n".join(row_to_str(r) for _, r in header_rows_df.iterrows())
-                
-                # --- IDENTIFY TICK-MARKED ROLE COLUMNS IN PYTHON ---
-                # Robust sub-header and parent forward-filling (aligned with local_extract_users)
-                if is_sub_header:
-                    headers = []
-                    parent_headers = raw_df.iloc[header_row_idx].tolist()
-                    filled_parents = []
-                    last_parent = ""
-                    for p in parent_headers:
-                        p_str = str(p).strip()
-                        if has_value(p_str):
-                            last_parent = p_str
-                        filled_parents.append(last_parent)
 
-                    for c_idx in range(len(raw_df.columns)):
-                        parent_h = filled_parents[c_idx]
-                        child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
-                        
-                        parent_clean = "" if is_empty_value(parent_h) else parent_h
-                        child_clean = "" if is_empty_value(child_h) else child_h
-                        
-                        if parent_clean and child_clean:
-                            if parent_clean.lower() == child_clean.lower():
-                                headers.append(child_clean)
-                            else:
-                                headers.append(f"{parent_clean}|{child_clean}")
-                        elif child_clean:
-                            headers.append(child_clean)
-                        elif parent_clean:
-                            headers.append(parent_clean)
-                        else:
-                            headers.append(f"col_{c_idx}")
-                else:
-                    headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+                role_cols = detect_tick_role_columns(headers, data_rows_df)
+                if role_cols:
+                    has_tick_role_columns = True
 
-                # Deduplicate columns to prevent Series indexing issues
-                unique_headers = []
-                header_counts = {}
-                for h in headers:
-                    if h in header_counts:
-                        header_counts[h] += 1
-                        unique_headers.append(f"{h}_{header_counts[h]}")
-                    else:
-                        header_counts[h] = 0
-                        unique_headers.append(h)
-                headers = unique_headers
-
-                role_cols = {}
-                role_keywords = [
-                    'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
-                    'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
-                    'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
-                    'infection', 'statistics', 'survey', 'feedback', 'complaint'
-                ]
-                for col_idx, header in enumerate(headers):
-                    header_lower = header.lower()
-                    is_role_header = any(kw in header_lower for kw in role_keywords)
-                    col_values = data_rows_df.iloc[:, col_idx].dropna().astype(str).str.strip().str.lower()
-                    
-                    if 'module|' in header_lower:
-                        NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
-                        has_ticks = col_values.apply(lambda v: v.lower() not in NEGATIVE_VALUES).any()
-                    else:
-                        TICK_VALUES = {'✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}
-                        has_ticks = col_values.isin(TICK_VALUES).any()
-                        
-                    if is_role_header and has_ticks:
-                        role_cols[col_idx] = header
-                        has_tick_role_columns = True
-                
                 # --- EXTRACT ROLE TICKS PER ROW ---
                 for idx, row in data_rows_df.iterrows():
                     row_roles = []
                     for col_idx, role_name in role_cols.items():
                         val = str(row.iloc[col_idx]).strip().lower() if col_idx < len(row) else ""
-                        
+
                         is_ticked = False
                         if 'module|' in role_name.lower():
-                            NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
-                            is_ticked = val not in NEGATIVE_VALUES
+                            is_ticked = val not in ROLE_NEGATIVE_VALUES
                         else:
-                            TICK_VALUES = {'✓', '✔', 'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', '\u2714', '\u2611'}
                             is_ticked = val in TICK_VALUES
-                            
+
                         if is_ticked:
                             clean_role_name = role_name
                             if '|' in clean_role_name:
                                 clean_role_name = clean_role_name.split('|')[-1]
-                            import re
                             clean_role_name = re.sub(r'_\d+$', '', clean_role_name)
                             row_roles.append(clean_role_name)
-                    
+
                     raw_vals = []
                     for v in row.values:
                         if pd.notna(v):
                             v_str = str(v).strip().lower()
                             if has_value(v_str):
                                 raw_vals.append(v_str)
-                    
+
                     global_excel_rows_data.append({
                         'roles': '|'.join(row_roles),
                         'raw_values': raw_vals
                     })
-                
+
                 # --- DYNAMIC FORMAT CLASSIFICATION FOR COLUMN A ---
-                # Calculate the density of non-empty values in Column A
                 col_a_values = data_rows_df.iloc[:, 0].dropna().astype(str).str.strip() if len(data_rows_df) > 0 else pd.Series()
                 col_a_non_empty = col_a_values[~col_a_values.str.lower().isin(['nan', 'none', '', '-'])]
                 non_empty_ratio = len(col_a_non_empty) / len(data_rows_df) if len(data_rows_df) > 0 else 0
 
-                # Check if Column A's header is a typical user attribute
                 col_a_header = str(headers[0]).lower().strip() if len(headers) > 0 else ""
                 is_col_a_user_attr = any(kw in col_a_header for kw in ['name', 'username', 'employee', 'emp', 'id', 'email', 'mail', 'phone', 'mobile'])
 
-                # Determine if Column A represents a Floating Role Section Header (matrix format)
                 is_floating_role_section = (non_empty_ratio < 0.45) and (not is_col_a_user_attr)
                 log.info("Sheet '%s' classification: non_empty_ratio=%.2f, is_col_a_user_attr=%s -> is_floating_role_section=%s", sheet_name, non_empty_ratio, is_col_a_user_attr, is_floating_role_section)
 
@@ -575,7 +448,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 last_col_a_value = ""
                 for _, row in data_rows_df.iterrows():
                     line = row_to_str(row)
-                    if not line.strip(): continue
+                    if not line.strip():
+                        continue
                     col_a_val = str(row.iloc[0]).strip() if len(row) > 0 else ""
                     if has_value(col_a_val):
                         last_col_a_value = col_a_val
@@ -583,8 +457,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     if is_floating_role_section and last_col_a_value:
                         tag += f" [ROLE SECTION: {last_col_a_value}]"
                     sheet_lines.append(f"{tag} {line}")
-                
-                # Create chunks for this specific sheet
+
                 # Small chunks (20 rows) = higher precision, fewer skipped users, no API timeouts
                 chunk_size = 20
                 for i in range(0, len(sheet_lines), chunk_size):
@@ -648,8 +521,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                             verified = [u for u in result if verify_extracted_user_source(u, chunk_text)]
                             if verified:
                                 if not cross_examine_extracted_users(current_client, model, chunk_text, verified):
-                                    log.warning("Batch %d failed cross-examination. Returning empty list to prevent hallucinations.", batch_idx)
-                                    return []
+                                    log.warning("Batch %d failed cross-examination. Keeping users to prevent dropping data.", batch_idx)
                             return verified
                         except Exception as e:
                             log.warning("Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
@@ -766,8 +638,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                         verified = [u for u in result if verify_extracted_user_source(u, chunk_text)]
                         if verified:
                             if not cross_examine_extracted_users(current_client, model, chunk_text, verified):
-                                log.warning("Simple Batch %d failed cross-examination. Returning empty list to prevent hallucinations.", batch_idx)
-                                return []
+                                log.warning("Simple Batch %d failed cross-examination. Keeping users to prevent dropping data.", batch_idx)
                         return verified
                     except Exception as e:
                         log.warning("PDF/Word Batch %d AI error model=%s: %s", batch_idx, model, e, exc_info=True)
@@ -812,8 +683,9 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     Includes: 60s timeout, exponential-backoff retry, column allowlist guard.
     Optionally accepts a context_df for external lookups/mappings.
     """
-    api_key_str = str(api_key).strip()
-    client = OpenAI(api_key=api_key_str)
+    healthy_keys = get_healthy_api_keys(api_key)
+    if not healthy_keys:
+        return None, "No healthy API keys available. Please configure API keys."
     model = "gpt-4o-mini"
 
     # Context size guard: truncate rows if JSON would be too large
@@ -857,6 +729,8 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
 
     last_error = "Unknown error"
     for attempt in range(_AI_RETRY_ATTEMPTS):
+        current_key = healthy_keys[attempt % len(healthy_keys)]
+        client = OpenAI(api_key=current_key)
         try:
             completion = client.chat.completions.parse(
                 model=model,
@@ -913,7 +787,6 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                 
                 if target_col in df.columns and search_text:
                     new_df = df.copy()
-                    import re
                     escaped_search = re.escape(search_text)
                     
                     # Store original values to count affected rows

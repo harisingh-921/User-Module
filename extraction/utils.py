@@ -1,8 +1,10 @@
 # user_masters/extraction/utils.py
 import os
 import logging
+import re
+import pandas as pd
 import streamlit as st
-from utils.common import has_value
+from utils.common import has_value, is_empty_value
 
 log = logging.getLogger(__name__)
 
@@ -71,3 +73,150 @@ def get_all_api_keys(primary_key=None):
             pass
             
     return keys
+
+
+def filter_sheets_by_intent(all_sheets: dict[str, pd.DataFrame], user_intent: str) -> dict[str, pd.DataFrame]:
+    """Filter raw Excel sheets based on skip/ignore/only user intents."""
+    if not user_intent or not isinstance(user_intent, str):
+        return all_sheets
+        
+    intent_lower = user_intent.lower()
+    filtered_sheets = {}
+    for s_name, s_df in all_sheets.items():
+        s_clean = s_name.lower().replace(' ', '')
+        should_ignore = False
+        
+        ignore_matches = re.findall(r'(?:ignore|skip)\s*sheet\s*([0-9]+)', intent_lower)
+        for num in ignore_matches:
+            if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                should_ignore = True
+                break
+                
+        if should_ignore:
+            continue
+            
+        only_matches = re.findall(r'only\s*sheet\s*([0-9]+)', intent_lower)
+        if only_matches:
+            matches_any_only = False
+            for num in only_matches:
+                if f"sheet{num}" == s_clean or num == s_clean.replace('sheet', ''):
+                    matches_any_only = True
+                    break
+            if not matches_any_only:
+                continue
+                
+        filtered_sheets[s_name] = s_df
+    return filtered_sheets
+
+
+def detect_header_row(raw_df: pd.DataFrame) -> int:
+    """Detect the index of the header row in a raw DataFrame based on keyword density."""
+    str_df = raw_df.astype(str).map(lambda x: str(x).strip())
+    header_row_idx = 0
+    max_matches = 0
+    for idx, row in str_df.iterrows():
+        vals = row.str.lower().tolist()
+        header_keywords = ['name', 'email', 'employee', 'id', 'mobile', 'phone', 
+                         'department', 'unit', 'role', 'designation', 'staff',
+                         'first', 'last', 'username', 'password']
+        matches = sum(1 for v in vals if any(kw in str(v).lower() for kw in header_keywords))
+        if matches > max_matches:
+            max_matches = matches
+            header_row_idx = idx
+        if matches >= 5:
+            break
+    return header_row_idx
+
+
+def check_is_sub_header(raw_df: pd.DataFrame, header_row_idx: int, col_mapping_temp: dict[str, str]) -> bool:
+    """Determine if the row following the header row is a sub-header row."""
+    if header_row_idx + 1 >= len(raw_df):
+        return False
+        
+    next_row = raw_df.iloc[header_row_idx + 1]
+    name_email_empty = True
+    header_list = raw_df.iloc[header_row_idx].tolist()
+    
+    for src_col, target_field in col_mapping_temp.items():
+        if target_field in ['firstName', 'lastName', '_fullName', 'employeeId', 'email']:
+            if src_col in header_list:
+                col_index = header_list.index(src_col)
+                val = str(next_row.iloc[col_index]).strip().lower() if col_index < len(next_row) else ""
+                if has_value(val):
+                    name_email_empty = False
+                    break
+                    
+    text_cells = sum(1 for v in next_row.values if has_value(v))
+    return name_email_empty and text_cells >= 2
+
+
+def build_unique_headers(raw_df: pd.DataFrame, header_row_idx: int, is_sub_header: bool) -> list[str]:
+    """Join parent and subheader names, then de-duplicate header names to build clean, unique column keys."""
+    if is_sub_header:
+        headers = []
+        parent_headers = raw_df.iloc[header_row_idx].tolist()
+        filled_parents = []
+        last_parent = ""
+        for p in parent_headers:
+            p_str = str(p).strip()
+            if has_value(p_str):
+                last_parent = p_str
+            filled_parents.append(last_parent)
+
+        for c_idx in range(len(raw_df.columns)):
+            parent_h = filled_parents[c_idx]
+            child_h = str(raw_df.iloc[header_row_idx + 1].iloc[c_idx]).strip()
+            
+            parent_clean = "" if is_empty_value(parent_h) else parent_h
+            child_clean = "" if is_empty_value(child_h) else child_h
+            
+            if parent_clean and child_clean:
+                if parent_clean.lower() == child_clean.lower():
+                    headers.append(child_clean)
+                else:
+                    headers.append(f"{parent_clean}|{child_clean}")
+            elif child_clean:
+                headers.append(child_clean)
+            elif parent_clean:
+                headers.append(parent_clean)
+            else:
+                headers.append(f"col_{c_idx}")
+    else:
+        headers = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+
+    # Deduplicate headers by appending numerical suffixes
+    unique_headers = []
+    header_counts = {}
+    for h in headers:
+        if h in header_counts:
+            header_counts[h] += 1
+            unique_headers.append(f"{h}_{header_counts[h]}")
+        else:
+            header_counts[h] = 0
+            unique_headers.append(h)
+    return unique_headers
+
+
+def detect_tick_role_columns(headers: list[str], data_rows_df: pd.DataFrame) -> dict[int, str]:
+    """Identify columns that serve as checkboxes / tick-mark targets for user roles."""
+    from config.constants import TICK_VALUES, ROLE_NEGATIVE_VALUES
+    role_cols = {}
+    role_keywords = [
+        'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
+        'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
+        'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
+        'infection', 'statistics', 'survey', 'feedback', 'complaint'
+    ]
+    for col_idx, header in enumerate(headers):
+        header_lower = header.lower()
+        is_role_header = any(kw in header_lower for kw in role_keywords)
+        col_values = data_rows_df.iloc[:, col_idx].dropna().astype(str).str.strip().str.lower()
+        
+        if 'module|' in header_lower:
+            has_ticks = col_values.apply(lambda v: v.lower() not in ROLE_NEGATIVE_VALUES).any()
+        else:
+            has_ticks = col_values.isin(TICK_VALUES).any()
+            
+        if is_role_header and has_ticks:
+            role_cols[col_idx] = header
+    return role_cols

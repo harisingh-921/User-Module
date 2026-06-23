@@ -16,8 +16,8 @@ def test_validate_master_data_empty():
 def test_validate_master_data_valid():
     """Verify clean DataFrame passes validation."""
     data = [
-        {"#": 1, "userName": "johndoe", "email": "john@example.com", "mobile": "+123456789"},
-        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "mobile": "9876543210"}
+        {"#": 1, "userName": "johndoe", "email": "john@example.com", "phone": "+123456789"},
+        {"#": 2, "userName": "janesmith", "email": "jane@example.com", "phone": "9876543210"}
     ]
     df = pd.DataFrame(data)
     errors, warnings = validate_master_data(df)
@@ -459,6 +459,96 @@ def test_cross_examine_extracted_users():
     mock_client.chat.completions.parse.side_effect = Exception("API connection error")
     res_exception = cross_examine_extracted_users(mock_client, "gpt-4o-mini", raw_text, extracted_users)
     assert res_exception is True
+
+
+def test_enforce_contract_type_safety():
+    from models.dataframe_contract import enforce_contract
+    import numpy as np
+    
+    # Test data frame with various mixed/numeric types
+    data = {
+        "phone": [9376950533, "8521766053", 9588060430.0, np.nan, None],
+        "employeeId": [1035605, "EMP002", np.nan, None, 12345.0],
+        "userName": ["testuser", "nan", None, "None", "normal"]
+    }
+    df = pd.DataFrame(data)
+    result = enforce_contract(df)
+    
+    # Assert type normalization to string
+    assert result.at[0, "phone"] == "9376950533"
+    assert result.at[1, "phone"] == "8521766053"
+    assert result.at[2, "phone"] == "9588060430"
+    assert result.at[3, "phone"] == ""
+    assert result.at[4, "phone"] == ""
+    
+    assert result.at[0, "employeeId"] == "1035605"
+    assert result.at[1, "employeeId"] == "EMP002"
+    assert result.at[2, "employeeId"] == ""
+    assert result.at[3, "employeeId"] == ""
+    assert result.at[4, "employeeId"] == "12345"
+    
+    assert result.at[0, "userName"] == "testuser"
+    assert result.at[1, "userName"] == ""
+    assert result.at[2, "userName"] == ""
+    assert result.at[3, "userName"] == ""
+    assert result.at[4, "userName"] == "normal"
+
+
+def test_ignore_suggested_columns():
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "Employee Name,Suggested UserName,Audit User,employeeId,email,phone\n"
+        "Sarita Sharma,saritasharma1,Audit User - CES,1035605,sarita@example.com,9876543210\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    assert len(df) == 1
+    user = df.iloc[0]
+    assert user["firstName"] == "Sarita"
+    assert user["lastName"] == "Sharma"
+    assert user["roles"] == "Audit User - CES"
+    assert user["userName"] == "saritasharma"
+    assert user["employeeId"] == "1035605"
+
+
+def test_designation_not_mapped_as_username():
+    from extraction.local import local_extract_users
+    
+    csv_data = (
+        "User Name,User Name|First Name,User Name|Last Name,User Name|Designation,User Name|Employee Id,User Name|Email,User Name|Mobile\n"
+        "Jaipur,Vidhya,Kanwar,ICN,221020,icn.jaipur@fortishealthcare.com | vidhya.kanwar@FORTISHEALTHCARE.COM,9376950533 |7023701893\n"
+    )
+    file_bytes = csv_data.encode("utf-8")
+    
+    df = local_extract_users(file_bytes, "test.csv")
+    
+    user = df.iloc[0]
+    assert user["firstName"] == "Vidhya"
+    assert user["lastName"] == "Kanwar"
+    assert user["designation"] == "ICN"
+    assert "icn" not in user["userName"]
+
+
+def test_no_merge_different_employee_ids():
+    from extraction.merge import _merge_duplicate_users
+    
+    data = [
+        {"userName": "icn", "firstName": "Vidhya", "employeeId": "221020", "email": "icn.jaipur@fortis.com"},
+        {"userName": "icn", "firstName": "Sarita", "employeeId": "180783", "email": "icn.jaipur@fortis.com"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df)
+    
+    assert len(merged_df) == 2
+    users = merged_df["firstName"].tolist()
+    assert "Vidhya" in users
+    assert "Sarita" in users
+
+
+
 
 
 

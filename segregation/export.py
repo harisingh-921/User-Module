@@ -1,7 +1,10 @@
 import pandas as pd
 import io
 import datetime
+import re
+import streamlit as st
 from utils.common import detect_duplicates_in_df, has_value
+from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
 
 def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list = None) -> dict:
     """
@@ -11,7 +14,6 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
     if not client_df.empty:
         client_df = client_df.copy()
         # Detect the client department column (using semantic mappings)
-        from config.constants import SEMANTIC_MAPPINGS
         dept_aliases = SEMANTIC_MAPPINGS.get('departments', ['department', 'departments', 'dept'])
         dept_col = None
         for col in client_df.columns:
@@ -42,8 +44,6 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
 
     existing_users = client_df[client_df['User Type'] == 'Existing User'].copy() if not client_df.empty else pd.DataFrame()
     new_users = client_df[client_df['User Type'] == 'New User'].copy() if not client_df.empty else pd.DataFrame()
-    
-    from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
     
     def format_to_template(df: pd.DataFrame, is_new: bool = False) -> pd.DataFrame:
         if df.empty:
@@ -139,7 +139,6 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     
         # Clean userName for new users: lowercase, no spaces, no special characters
         if is_new and 'userName' in df.columns:
-            import re
             def clean_new_username(row):
                 uname = str(row.get('userName', '')).strip()
                 if pd.isna(row.get('userName', '')) or uname.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
@@ -164,22 +163,8 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
 
         # Generate password using Password Prefix for new users if not provided by client
         if is_new and 'password' in df.columns:
-            import streamlit as st
             pass_prefix = st.session_state.get("pass_prefix", "Med")
             
-            # DEBUG LOGGING
-            try:
-                import os
-                os.makedirs("scratch", exist_ok=True)
-                with open("scratch/pwd_debug.txt", "w", encoding="utf-8") as f:
-                    f.write(f"is_new: {is_new}\n")
-                    f.write(f"pass_prefix: {pass_prefix}\n")
-                    f.write(f"Columns: {list(df.columns)}\n")
-                    f.write(f"First 5 employeeId: {df['employeeId'].head().tolist() if 'employeeId' in df.columns else 'N/A'}\n")
-                    f.write(f"First 5 password: {df['password'].head().tolist() if 'password' in df.columns else 'N/A'}\n")
-            except Exception as e:
-                pass
-
             def fill_new_password(row):
                 pwd = str(row.get('password', '')).strip()
                 if pd.isna(row.get('password')) or pwd.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):

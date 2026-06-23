@@ -164,7 +164,12 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
 
         # Safety 2: Anti-Merge (If AI returned "Priyodarshini Manisha" without a pipe)
         if ' ' in fn:
-            fn = fn.split(' ')[0].strip()
+            words = fn.split()
+            if words and words[0].lower().rstrip('.') in ('dr', 'mr', 'mrs', 'ms', 'sr', 'prof', 'sister', 'fr'):
+                if len(words) >= 2:
+                    fn = words[0] + " " + words[1]
+            else:
+                fn = fn.split(' ')[0].strip()
 
         for val in [fn, mn, ln]:
             if has_value(val):
@@ -208,16 +213,26 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         return u_str.lower()
         
     merged_df['userName'] = merged_df['userName'].apply(clean_uname)
-    merged_df['_final_group_key'] = merged_df['userName']
     
-    for _, group in merged_df.groupby('_final_group_key', sort=False):
+    for _, group in merged_df.groupby('userName', sort=False):
         if len(group) == 1:
             final_rows.append(group.iloc[0])
         else:
-            final_rows.append(merge_group(group))
+            # Safety check: do not merge rows that have different non-empty employee IDs
+            # or different non-empty names.
+            emp_ids = group['employeeId'].dropna().astype(str).str.strip().str.lower()
+            emp_ids = emp_ids[emp_ids.ne('') & emp_ids.ne('nan') & emp_ids.ne('none')]
+            
+            names = group['firstName'].dropna().astype(str).str.strip().str.lower()
+            names = names[names.ne('') & names.ne('nan') & names.ne('none')]
+            
+            if len(emp_ids.unique()) > 1 or (len(names.unique()) > 1 and len(emp_ids.unique()) > 0):
+                for _, row in group.iterrows():
+                    final_rows.append(row)
+            else:
+                final_rows.append(merge_group(group))
     
     merged_df = pd.DataFrame(final_rows).reset_index(drop=True)
-    merged_df = merged_df.drop(columns=['_final_group_key'], errors='ignore')
     
     # ── FUZZY NAME SIMILARITY DEDUPLICATION PASS ─────────────────────────────
     # Compare remaining rows fuzzy-wise. If two rows have similar names (ratio > 0.88)

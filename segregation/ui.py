@@ -13,18 +13,6 @@ def read_file(uploaded_file):
     # Drop rows that are completely empty (all NaNs)
     df = df.dropna(how='all')
     
-    # Log details to scratch/uploaded_file_debug.txt
-    try:
-        import os
-        os.makedirs('scratch', exist_ok=True)
-        with open('scratch/uploaded_file_debug.txt', 'a', encoding='utf-8') as f:
-            f.write(f"\n--- UPLOADED FILE: {uploaded_file.name} ---\n")
-            f.write(f"Columns: {df.columns.tolist()}\n")
-            if not df.empty:
-                f.write(f"First row: {df.iloc[0].to_dict()}\n")
-    except Exception as e:
-        pass
-
     # Silently drop exact identical clones to prevent the UI from surfacing them as errors
     return df.drop_duplicates(keep='first')
 
