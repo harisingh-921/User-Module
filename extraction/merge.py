@@ -218,18 +218,19 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         if len(group) == 1:
             final_rows.append(group.iloc[0])
         else:
-            # Check if there are different employee IDs in this group
-            emp_ids = group['employeeId'].dropna().astype(str).str.strip().unique()
-            emp_ids = [eid for eid in emp_ids if has_value(eid) and eid.lower() not in ('nan', 'none', '-', 'na', 'n/a')]
+            # Safety check: do not merge rows that have different non-empty employee IDs
+            # or different non-empty names.
+            emp_ids = group['employeeId'].dropna().astype(str).str.strip().str.lower()
+            emp_ids = emp_ids[emp_ids.ne('') & emp_ids.ne('nan') & emp_ids.ne('none')]
             
-            if len(emp_ids) <= 1:
-                # 0 or 1 unique employee ID, safe to merge
-                final_rows.append(merge_group(group))
+            names = group['firstName'].dropna().astype(str).str.strip().str.lower()
+            names = names[names.ne('') & names.ne('nan') & names.ne('none')]
+            
+            if len(emp_ids.unique()) > 1 or (len(names.unique()) > 1 and len(emp_ids.unique()) > 0):
+                for _, row in group.iterrows():
+                    final_rows.append(row)
             else:
-                # Multiple different employee IDs: split them and merge each subgroup separately!
-                # Group by employeeId (treating empty/invalid as a single group)
-                for eid, sub_group in group.groupby('employeeId', dropna=False):
-                    final_rows.append(merge_group(sub_group))
+                final_rows.append(merge_group(group))
     
     merged_df = pd.DataFrame(final_rows).reset_index(drop=True)
     

@@ -103,7 +103,26 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 break
         
         # --- Improved Auto-detect header row ---
-        header_row_idx = detect_header_row(raw_df)
+        str_df = raw_df.astype(str).map(lambda x: str(x).strip())
+        header_row_idx = 0
+        max_matches = 0
+        for idx, row in str_df.iterrows():
+            vals = row.str.lower().tolist()
+            # If row contains common header keywords, it's likely the header
+            header_keywords = ['name', 'email', 'employee', 'id', 'mobile', 'phone', 
+                             'department', 'unit', 'role', 'designation', 'staff',
+                             'first', 'last', 'username', 'password']
+            matches = sum(1 for v in vals if any(kw in str(v).lower() for kw in header_keywords))
+            if matches > max_matches:
+                max_matches = matches
+                header_row_idx = idx
+            if matches >= 5:
+                break
+        
+        # --- Check if the row immediately following the header row is a sub-header row ---
+        is_sub_header = False
+        headers_temp = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values if 'suggested' not in str(h).lower()}
         
         # Build temp col_mapping to check if next row has actual data in name/email columns
         col_mapping_temp = {}
@@ -172,28 +191,16 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         
         # --- Map columns to our schema ---
         col_mapping = {}  # source_col -> target_field
-        headers_lower = {h: h.lower().strip() for h in headers}
+        headers_lower = {h: h.lower().strip() for h in headers if 'suggested' not in h.lower()}
         
-        # Pass 1: Direct matches for all fields (except roles)
+        # Pass 1: Direct and Semantic Alias Matches (highest priority)
         for target_field in USER_MASTER_COLS:
             if target_field == 'roles':
                 continue
-            tf_lower = target_field.lower()
-            for src_col, src_lower in headers_lower.items():
-                if src_col in col_mapping:
-                    continue
-                clean_src_lower = src_lower.split('|')[-1].strip() if '|' in src_lower else src_lower
-                if (src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower() or
-                    clean_src_lower == tf_lower or clean_src_lower.replace(' ', '') == tf_lower.lower()):
-                    col_mapping[src_col] = target_field
-                    break
-        
-        # Pass 2: Semantic/fuzzy matches using SEMANTIC_MAPPINGS for all fields
-        for target_field in USER_MASTER_COLS:
-            if target_field == 'roles' or any(v == target_field for v in col_mapping.values()):
+            if any(v == target_field for v in col_mapping.values()):
                 continue
-            
-            # Prioritize official email
+                
+            # Smart email preference: if both Personal and Official exist, prioritize Official
             if target_field == 'email':
                 official_email_cols = [h for h in headers if h not in col_mapping and ('official' in h.lower() or 'work' in h.lower() or 'corp' in h.lower())]
                 general_email_cols = [h for h in headers if h not in col_mapping and ('email' in h.lower() or 'mail' in h.lower())]
@@ -205,69 +212,79 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 if best_email_col:
                     col_mapping[best_email_col] = 'email'
                     continue
-                    
-            if target_field in SEMANTIC_MAPPINGS:
-                found = False
-                for alias in SEMANTIC_MAPPINGS[target_field]:
-                    for src_col, src_lower in headers_lower.items():
-                        if src_col in col_mapping:
-                            continue
-                        clean_src_lower = src_lower.split('|')[-1].strip() if '|' in src_lower else src_lower
-                        if (alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or
-                            alias == clean_src_lower or clean_src_lower.replace(' ', '') == alias.replace(' ', '')):
-                            col_mapping[src_col] = target_field
-                            found = True
-                            break
-                    if found:
-                        break
 
-        # Pass 3: Broad keyword matches for all fields (except roles)
-        broad_keywords = {
-            'departments': ['department', 'dept'],
-            'units': ['unit', 'ward', 'division'],
-            'designation': ['designation', 'position', 'title', 'rank', 'category'],
-            'userName': ['user name', 'username'],
-            'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
-            'email': ['email', 'e-mail', 'mail'],
-            'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
-            'thirdPartyUsername': ['third party', 'ad username', 'thirdparty'],
-        }
+            tf_lower = target_field.lower()
+            # Direct match
+            found = False
+            for src_col, src_lower in headers_lower.items():
+                if src_col in col_mapping:
+                    continue
+                if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
+                    col_mapping[src_col] = target_field
+                    found = True
+                    break
+            
+            if not found:
+                # Semantic/fuzzy match using SEMANTIC_MAPPINGS
+                if target_field in SEMANTIC_MAPPINGS:
+                    for alias in SEMANTIC_MAPPINGS[target_field]:
+                        for src_col, src_lower in headers_lower.items():
+                            if src_col in col_mapping:
+                                continue
+                            child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_part:
+                                col_mapping[src_col] = target_field
+                                found = True
+                                break
+                        if found:
+                            break
+
+        # Pass 2: Broad Keyword and Full Name Splits (fallback priority)
         for target_field in USER_MASTER_COLS:
-            if target_field == 'roles' or any(v == target_field for v in col_mapping.values()):
+            if target_field == 'roles':
                 continue
+            if any(v == target_field for v in col_mapping.values()):
+                continue
+                
+            # Broad keyword match for common fields
+            broad_keywords = {
+                'departments': ['department', 'dept'],
+                'units': ['unit', 'ward', 'division'],
+                'designation': ['designation', 'position', 'title', 'rank', 'category'],
+                'userName': ['user name', 'username'],
+                'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
+                'email': ['email', 'e-mail', 'mail'],
+                'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+            }
             if target_field in broad_keywords:
                 found = False
                 for kw in broad_keywords[target_field]:
                     for src_col, src_lower in headers_lower.items():
                         if src_col in col_mapping:
                             continue
-                        clean_src_lower = src_lower.split('|')[-1].strip() if '|' in src_lower else src_lower
-                        if target_field == 'userName':
-                            # Avoid matching third party or AD username columns to userName
-                            if 'third party' in clean_src_lower or 'ad' in clean_src_lower or 'thirdparty' in clean_src_lower:
-                                continue
-                        if kw in src_lower or kw in clean_src_lower:
+                        child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                        if kw in child_part:
                             col_mapping[src_col] = target_field
                             found = True
                             break
                     if found:
                         break
-
-        # Pass 4: Handle "Full Name" / "Name" -> firstName + lastName split
-        if 'firstName' not in col_mapping.values() and 'lastName' not in col_mapping.values():
-            for src_col, src_lower in headers_lower.items():
-                if src_col in col_mapping:
-                    continue
-                clean_src_lower = src_lower.split('|')[-1].strip() if '|' in src_lower else src_lower
-                if (src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name') or
-                    clean_src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name')):
-                    col_mapping[src_col] = '_fullName'
-                    break
+                        
+            # Handle "Full Name" / "Name" -> firstName + lastName split
+            if target_field == 'firstName' and 'firstName' not in col_mapping.values():
+                for src_col, src_lower in headers_lower.items():
+                    if src_col in col_mapping:
+                        continue
+                    if src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
+                        col_mapping[src_col] = '_fullName'
+                        break
         
         # Check for running/floating roles columns in headers (must not be a tick-marked column)
         roles_col_names = []
         for h in headers:
             if h in col_mapping:
+                continue
+            if 'suggested' in h.lower():  # Ignore suggested column!
                 continue
             if 'module|' in h.lower():  # Specific role columns in module sections are never running roles columns
                 continue
@@ -279,9 +296,32 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                     roles_col_names.append(h)
  
         # --- Detect tick-marked role columns ---
-        role_cols = detect_tick_role_columns(headers, data_df)
-                # --- Build user records ---
-        last_roles = {}  # Keep track of last seen role for each running role column
+        role_cols = {}
+        role_keywords = [
+            'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
+            'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
+            'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
+            'infection', 'statistics', 'survey', 'feedback', 'complaint'
+        ]
+        for src_col in headers:
+            src_lower = str(src_col).lower()
+            if 'suggested' in src_lower:  # Ignore suggested column!
+                continue
+            is_role_header = any(kw in src_lower for kw in role_keywords)
+            if is_role_header and src_col not in col_mapping and src_col != roles_col_name:
+                col_vals = data_df[src_col].dropna().astype(str).str.strip()
+                # If it's a module column, any non-empty, non-negative value is considered a valid role assignment tick!
+                if 'module|' in src_lower:
+                     NEGATIVE_VALUES = {'', 'nan', 'none', '-', 'no', 'false', '0'}
+                     has_ticks = col_vals.apply(lambda v: v.lower() not in NEGATIVE_VALUES).any()
+                else:
+                     has_ticks = col_vals.apply(lambda v: v.lower() in TICK_VALUES or v in TICK_VALUES).any()
+                
+                if has_ticks:
+                    role_cols[src_col] = src_col
+        
+        # --- Build user records ---
+        last_role_val = ""
         for _, row in data_df.iterrows():
             user = {col: '' for col in USER_MASTER_COLS}
             
@@ -358,13 +398,11 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                             user['employeeId'] = match.group(2).strip()
  
             # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
-            # We ONLY split the row into multiple users if at least one of the name/ID fields contains a pipe '|'
-            name_id_fields = ['firstName', 'lastName', 'employeeId']
-            has_multi_user = any('|' in str(user.get(f, '')) for f in name_id_fields)
+            split_trigger_fields = ['firstName', 'lastName', 'userName', 'employeeId']
+            has_split_trigger = any('|' in user.get(f, '') for f in split_trigger_fields)
             
-            identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'phone', 'thirdPartyUsername']
-            
-            if has_multi_user:
+            if has_split_trigger:
+                identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'phone']
                 max_parts = 1
                 for f in identity_fields:
                     val = user.get(f, '')
@@ -372,26 +410,40 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         parts = [p.strip() for p in val.split('|')]
                         max_parts = max(max_parts, len(parts))
                 
-                for i in range(max_parts):
-                    sub_user = user.copy()
-                    for f in USER_MASTER_COLS:
-                        if f in identity_fields:
-                            val = user.get(f, '')
-                            parts = [p.strip() for p in val.split('|')] if '|' in val else [val]
-                            if i < len(parts):
-                                sub_user[f] = parts[i]
-                            else:
-                                sub_user[f] = ''
-                                
-                    has_name = (sub_user.get('firstName', '').strip() or 
-                               sub_user.get('lastName', '').strip() or 
-                               sub_user.get('employeeId', '').strip() or
-                               sub_user.get('userName', '').strip())
+                if max_parts > 1:
+                    for i in range(max_parts):
+                        sub_user = user.copy()
+                        for f in USER_MASTER_COLS:
+                            if f in identity_fields:
+                                val = user.get(f, '')
+                                parts = [p.strip() for p in val.split('|')] if '|' in val else [val]
+                                if i < len(parts):
+                                    sub_user[f] = parts[i]
+                                else:
+                                    sub_user[f] = ''
+                        
+                        has_name = (sub_user.get('firstName', '').strip() or 
+                                   sub_user.get('lastName', '').strip() or 
+                                   sub_user.get('employeeId', '').strip() or
+                                   sub_user.get('userName', '').strip())
+                        if has_name:
+                            all_users.append(sub_user)
+                else:
+                    for f in ['email', 'phone']:
+                        val = user.get(f, '')
+                        if '|' in val:
+                            user[f] = val.split('|')[0].strip()
+                    has_name = (user.get('firstName', '').strip() or 
+                               user.get('lastName', '').strip() or 
+                               user.get('employeeId', '').strip() or
+                               user.get('userName', '').strip())
                     if has_name:
-                        all_users.append(sub_user)
+                        all_users.append(user)
             else:
-                user = resolve_multi_value_fields(user)
-                
+                for f in ['email', 'phone']:
+                    val = user.get(f, '')
+                    if '|' in val:
+                        user[f] = val.split('|')[0].strip()
                 has_name = (user.get('firstName', '').strip() or 
                            user.get('lastName', '').strip() or 
                            user.get('employeeId', '').strip() or
