@@ -27,3 +27,18 @@ TICK_VALUES = frozenset({'yes', 'y', 'x', '1', 'true', 'v', '\u221a', '\u2713', 
 
 # ── Negative values for role-matrix columns (module|SubRole style) ────────────
 ROLE_NEGATIVE_VALUES = frozenset({'', 'nan', 'none', '-', 'no', 'false', '0'})
+
+# ── Enterprise Safety Limits & AI Constants ──────────────────────────────────
+MAX_FILE_SIZE_MB   = 20      # Hard reject uploads larger than this
+MAX_PDF_PAGES      = 60      # Cap PDF pages sent to AI
+MAX_AI_CONTEXT_KB  = 80      # Approx token guard: skip AI call if context > 80 KB
+AI_RETRY_ATTEMPTS  = 3       # Transient error retries for apply_ai_smart_context
+AI_RETRY_BASE_WAIT = 2       # Base seconds for exponential backoff
+
+# Columns the AI is permitted to modify via apply_ai_smart_context
+AI_ALLOWED_EDIT_COLS = frozenset({
+    'firstName', 'middleName', 'lastName', 'userName', 'email', 'phone',
+    'employeeId', 'departments', 'roles', 'units', 'designation',
+    'isEnabled', 'password',
+})
+

@@ -56,6 +56,16 @@ def get_all_api_keys(primary_key=None):
                 keys.append(val)
     except Exception:
         pass
+
+    # Load from OS environment variables
+    try:
+        import os
+        for k in ["OPENAI_API_KEY", "OPENAI_API_KEY_2", "OPENAI_API_KEY_3", "GEMINI_API_KEY", "GEMINI_API_KEY_2", "GEMINI_API_KEY_3"]:
+            val = str(os.environ.get(k, "")).strip()
+            if val and val not in keys:
+                keys.append(val)
+    except Exception:
+        pass
         
     # Manual fallback: load from secrets.toml relative to this file's folder
     if not keys or len(keys) <= (1 if primary_key else 0):
@@ -220,3 +230,93 @@ def detect_tick_role_columns(headers: list[str], data_rows_df: pd.DataFrame) -> 
         if is_role_header and has_ticks:
             role_cols[col_idx] = header
     return role_cols
+
+
+def build_temp_col_mapping(headers: list[str]) -> dict[str, str]:
+    """
+    Builds a temporary column mapping (source_col -> target_field) for headers.
+    Used for sub-header checks and pre-mapping identification.
+    """
+    import re
+    from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
+
+    col_mapping_temp = {}
+    headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in headers if 'suggested' not in str(h).lower()}
+
+    for target_field in USER_MASTER_COLS:
+        if target_field == 'roles':
+            continue
+        if target_field == 'email':
+            # Smart email preference: if both Personal and Official exist, prioritize Official
+            official_email_cols = [h for h in headers if h not in col_mapping_temp and ('official' in str(h).lower() or 'work' in str(h).lower() or 'corp' in str(h).lower())]
+            general_email_cols = [h for h in headers if h not in col_mapping_temp and ('email' in str(h).lower() or 'mail' in str(h).lower())]
+            best_email_col = None
+            for o_col in official_email_cols:
+                if o_col in general_email_cols:
+                    best_email_col = o_col
+                    break
+            if best_email_col:
+                col_mapping_temp[best_email_col] = 'email'
+                continue
+        tf_lower = target_field.lower()
+        for src_col, src_lower in headers_lower_temp.items():
+            if src_col in col_mapping_temp:
+                continue
+            src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
+            if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
+                col_mapping_temp[src_col] = target_field
+                break
+        else:
+            if target_field in SEMANTIC_MAPPINGS:
+                for alias in SEMANTIC_MAPPINGS[target_field]:
+                    for src_col, src_lower in headers_lower_temp.items():
+                        if src_col in col_mapping_temp:
+                            continue
+                        child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                        child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                        if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
+                            col_mapping_temp[src_col] = target_field
+                            break
+                    if any(v == target_field for v in col_mapping_temp.values()):
+                        break
+
+            if not any(v == target_field for v in col_mapping_temp.values()):
+                broad_keywords = {
+                    'departments': ['department', 'dept'],
+                    'units': ['unit', 'ward', 'division'],
+                    'designation': ['designation', 'position', 'title', 'rank', 'category'],
+                    'userName': ['user name', 'username'],
+                    'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
+                    'email': ['email', 'e-mail', 'mail'],
+                    'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                    'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
+                }
+                if target_field in broad_keywords:
+                    for kw in broad_keywords[target_field]:
+                        for src_col, src_lower in headers_lower_temp.items():
+                            if src_col in col_mapping_temp:
+                                continue
+                            child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
+                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+
+                            # Prevent matching third party / AD columns to userName
+                            if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
+                                continue
+
+                            if kw in child_clean:
+                                col_mapping_temp[src_col] = target_field
+                                break
+                        if any(v == target_field for v in col_mapping_temp.values()):
+                            break
+
+        if target_field == 'firstName' and 'firstName' not in col_mapping_temp.values():
+            for src_col, src_lower in headers_lower_temp.items():
+                if src_col in col_mapping_temp:
+                    continue
+                src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
+                if src_clean in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
+                    col_mapping_temp[src_col] = '_fullName'
+                    break
+
+    return col_mapping_temp
+

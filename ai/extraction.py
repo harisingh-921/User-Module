@@ -25,31 +25,22 @@ if __name__ == "__main__" or sys.path[0].endswith("ai"):
     if 'extraction' in sys.modules and sys.modules['extraction'].__file__ == __file__:
         del sys.modules['extraction']
 
-from config.constants import USER_MASTER_COLS, TICK_VALUES, ROLE_NEGATIVE_VALUES
+from config.constants import (
+    USER_MASTER_COLS, TICK_VALUES, ROLE_NEGATIVE_VALUES,
+    MAX_FILE_SIZE_MB, MAX_PDF_PAGES, MAX_AI_CONTEXT_KB,
+    AI_RETRY_ATTEMPTS, AI_RETRY_BASE_WAIT, AI_ALLOWED_EDIT_COLS
+)
 from models.schemas import UserMasterResult, AISmartResponse, RowUpdate, VerificationResult
 from models.dataframe_contract import enforce_contract
 from extraction.merge import _merge_duplicate_users
 from extraction.utils import (
     get_all_api_keys, find_matching_excel_roles, filter_sheets_by_intent,
-    detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns
+    detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns,
+    build_temp_col_mapping
 )
 from utils.common import is_empty_value, has_value
 
 log = logging.getLogger(__name__)
-
-# ── Enterprise Safety Limits (edit here to tune) ─────────────────────────────
-_MAX_FILE_SIZE_MB   = 20      # Hard reject uploads larger than this
-_MAX_PDF_PAGES      = 60      # Cap PDF pages sent to AI
-_MAX_AI_CONTEXT_KB  = 80      # Approx token guard: skip AI call if context > 80 KB
-_AI_RETRY_ATTEMPTS  = 3       # Transient error retries for apply_ai_smart_context
-_AI_RETRY_BASE_WAIT = 2       # Base seconds for exponential backoff
-# Columns the AI is permitted to modify via apply_ai_smart_context
-_AI_ALLOWED_EDIT_COLS = {
-    'firstName', 'middleName', 'lastName', 'userName', 'email', 'phone',
-    'employeeId', 'departments', 'roles', 'units', 'designation',
-    'isEnabled', 'password',
-}
-# ─────────────────────────────────────────────────────────────────────────────
 
 USER_EXTRACTION_PROMPT = """
 You are a High-Precision, Format-Agnostic User Data Extraction Engine.
@@ -151,6 +142,11 @@ def get_openai_client(api_key):
     if not api_key:
         return None
     api_key_str = str(api_key).strip()
+    if api_key_str.startswith("AIzaSy"):
+        return OpenAI(
+            api_key=api_key_str,
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
     return OpenAI(api_key=api_key_str)
 
 def probe_api_key(key):
@@ -321,8 +317,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
     """Universal AI User Extraction Engine with Chunking & Failover."""
     # ── File-size guard ───────────────────────────────────────────────────────
     size_mb = len(file_bytes) / 1_048_576
-    if size_mb > _MAX_FILE_SIZE_MB:
-        st.error(f"❌ **{filename}** is {size_mb:.1f} MB — exceeds the {_MAX_FILE_SIZE_MB} MB limit. "
+    if size_mb > MAX_FILE_SIZE_MB:
+        st.error(f"❌ **{filename}** is {size_mb:.1f} MB — exceeds the {MAX_FILE_SIZE_MB} MB limit. "
                  f"Please split the file and re-upload.")
         return pd.DataFrame()
     # ─────────────────────────────────────────────────────────────────────────
@@ -365,28 +361,8 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 # --- Auto-detect header and sub-header row (aligned with local_extract_users) ---
                 header_row_idx = detect_header_row(raw_df)
 
-                headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
-                col_mapping_temp = {}
-                for target_field in ['firstName', 'lastName', 'employeeId', 'email']:
-                    tf_lower = target_field.lower()
-                    for src_col, src_lower in headers_lower_temp.items():
-                        if src_lower == tf_lower or src_lower.replace(' ', '') == tf_lower.lower():
-                            col_mapping_temp[src_col] = target_field
-                            break
-                    else:
-                        aliases = {
-                            'employeeId': ['emp id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'serial no', 'sl no', 'staff id'],
-                            'email': ['e-mail', 'mail id', 'official email', 'email address'],
-                            'firstName': ['first name', 'fname', 'given name', 'name', 'employee name', 'staff name'],
-                        }.get(target_field, [])
-                        for alias in aliases:
-                            for src_col, src_lower in headers_lower_temp.items():
-                                if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', ''):
-                                    col_mapping_temp[src_col] = target_field
-                                    break
-                            if target_field in col_mapping_temp.values():
-                                break
-
+                headers_raw = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+                col_mapping_temp = build_temp_col_mapping(headers_raw)
                 is_sub_header = check_is_sub_header(raw_df, header_row_idx, col_mapping_temp)
                 headers = build_unique_headers(raw_df, header_row_idx, is_sub_header)
                 first_data_row = header_row_idx + 2 if is_sub_header else header_row_idx + 1
@@ -488,7 +464,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                     if not current_client:
                         continue
                     
-                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                    if current_key.startswith("AIzaSy"):
+                        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
+                    else:
+                        models_to_try = ["gpt-4o-mini", "gpt-4o"]
                         
                     for model in models_to_try:
                         try:
@@ -503,7 +482,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                                 temperature=0.0
                             )
                             result = [u.__dict__ for u in completion.choices[0].message.parsed.users]
-                            if not result and model == "gpt-4o-mini":
+                            if not result and model in ("gpt-4o-mini", "gemini-1.5-flash"):
                                 time.sleep(1)
                                 completion2 = current_client.chat.completions.parse(
                                     model=model,
@@ -572,14 +551,14 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         elif ext.endswith('.pdf'):
             doc = fitz.open(stream=file_bytes, filetype="pdf")
             total_pages = len(doc)
-            if total_pages > _MAX_PDF_PAGES:
-                st.warning(f"⚠️ **{filename}** has {total_pages} pages — processing first {_MAX_PDF_PAGES} only.")
+            if total_pages > MAX_PDF_PAGES:
+                st.warning(f"⚠️ **{filename}** has {total_pages} pages — processing first {MAX_PDF_PAGES} only.")
             all_lines = []
-            for page in doc.pages(0, min(total_pages, _MAX_PDF_PAGES)):
+            for page in doc.pages(0, min(total_pages, MAX_PDF_PAGES)):
                 text = page.get_text("text")
                 lines = [line.strip() for line in text.split("\n") if line.strip()]
                 all_lines.extend(lines)
-            st.toast(f"📄 Read {min(total_pages, _MAX_PDF_PAGES)}/{total_pages} PDF pages.")
+            st.toast(f"📄 Read {min(total_pages, MAX_PDF_PAGES)}/{total_pages} PDF pages.")
             header_context = "SOURCE: PDF Document\n"
             
         elif ext.endswith(('.docx', '.doc')):
@@ -619,7 +598,10 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
                 if not current_client:
                     continue
                 
-                models_to_try = ["gpt-4o-mini", "gpt-4o"]
+                if current_key.startswith("AIzaSy"):
+                    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
+                else:
+                    models_to_try = ["gpt-4o-mini", "gpt-4o"]
                     
                 for model in models_to_try:
                     try:
@@ -692,7 +674,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     context_data_df = df
     context_json = context_data_df.to_json(orient='records')
     _is_truncated = False
-    if len(context_json) > _MAX_AI_CONTEXT_KB * 1024:
+    if len(context_json) > MAX_AI_CONTEXT_KB * 1024:
         # Send only first 200 rows for initial context evaluation
         context_data_df = df.head(200)
         context_json = context_data_df.to_json(orient='records')
@@ -728,9 +710,10 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
     prompt = _build_prompt(context_json)
 
     last_error = "Unknown error"
-    for attempt in range(_AI_RETRY_ATTEMPTS):
+    for attempt in range(AI_RETRY_ATTEMPTS):
         current_key = healthy_keys[attempt % len(healthy_keys)]
-        client = OpenAI(api_key=current_key)
+        client = get_openai_client(current_key)
+        model = "gemini-1.5-flash" if current_key.startswith("AIzaSy") else "gpt-4o-mini"
         try:
             completion = client.chat.completions.parse(
                 model=model,
@@ -746,7 +729,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             res_data = completion.choices[0].message.parsed
             if not res_data:
                 last_error = "AI failed to parse response into Structured Output schema."
-                time.sleep(_AI_RETRY_BASE_WAIT * (2 ** attempt))
+                time.sleep(AI_RETRY_BASE_WAIT * (2 ** attempt))
                 continue
 
             # Programmatic Mapping Mode
@@ -810,7 +793,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                 filter_col = intent.filter_col
                 filter_value = intent.filter_value
 
-                if target_col and target_col in _AI_ALLOWED_EDIT_COLS and target_col in df.columns:
+                if target_col and target_col in AI_ALLOWED_EDIT_COLS and target_col in df.columns:
                     new_df = df.copy()
                     if filter_col and filter_value is not None and filter_col in df.columns:
                         # Filtered set: only rows where filter_col matches filter_value (case-insensitive)
@@ -844,7 +827,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                         update_dict = update.model_dump(exclude_unset=True, by_alias=True)
                         for k, v in update_dict.items():
                             if k == '#' or k == 'serial_number' or k == '::action': continue
-                            if k in _AI_ALLOWED_EDIT_COLS:
+                            if k in AI_ALLOWED_EDIT_COLS:
                                 if new_df.at[row_idx, k] != v:
                                     new_df.at[row_idx, k] = v
                                     affected += 1
@@ -901,7 +884,7 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             log.warning("Smart Context attempt %d %s: %s", attempt + 1, type(e).__name__, err_str)
             # Rate limit or transient: back off and retry
             if "429" in err_str or "timeout" in err_str.lower() or "connection" in err_str.lower():
-                wait = _AI_RETRY_BASE_WAIT * (2 ** attempt)
+                wait = AI_RETRY_BASE_WAIT * (2 ** attempt)
                 log.info("Retrying in %ds...", wait)
                 time.sleep(wait)
                 continue

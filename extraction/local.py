@@ -9,7 +9,7 @@ from models.dataframe_contract import enforce_contract
 from utils.common import is_empty_value, has_value
 from extraction.utils import (
     filter_sheets_by_intent, detect_header_row, check_is_sub_header,
-    build_unique_headers, detect_tick_role_columns
+    build_unique_headers, detect_tick_role_columns, build_temp_col_mapping
 )
 
 def resolve_multi_value_fields(user):
@@ -120,71 +120,8 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 break
         
         # --- Check if the row immediately following the header row is a sub-header row ---
-        is_sub_header = False
-        headers_temp = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
-        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values if 'suggested' not in str(h).lower()}
-        
-        # Build temp col_mapping to check if next row has actual data in name/email columns
-        col_mapping_temp = {}
-        headers_temp = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
-        headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in raw_df.iloc[header_row_idx].values}
-        for target_field in USER_MASTER_COLS:
-            if target_field == 'roles': continue
-            tf_lower = target_field.lower()
-            for src_col, src_lower in headers_lower_temp.items():
-                if src_col in col_mapping_temp: continue
-                src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
-                if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
-                    col_mapping_temp[src_col] = target_field
-                    break
-            else:
-                if target_field in SEMANTIC_MAPPINGS:
-                    for alias in SEMANTIC_MAPPINGS[target_field]:
-                        for src_col, src_lower in headers_lower_temp.items():
-                            if src_col in col_mapping_temp: continue
-                            child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
-                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
-                                col_mapping_temp[src_col] = target_field
-                                break
-                        if any(v == target_field for v in col_mapping_temp.values()):
-                            break
-                            
-                if not any(v == target_field for v in col_mapping_temp.values()):
-                    broad_keywords = {
-                        'departments': ['department', 'dept'],
-                        'units': ['unit', 'ward', 'division'],
-                        'designation': ['designation', 'position', 'title', 'rank', 'category'],
-                        'userName': ['user name', 'username'],
-                        'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
-                        'email': ['email', 'e-mail', 'mail'],
-                        'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
-                        'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
-                    }
-                    if target_field in broad_keywords:
-                        for kw in broad_keywords[target_field]:
-                            for src_col, src_lower in headers_lower_temp.items():
-                                if src_col in col_mapping_temp: continue
-                                child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                                child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
-                                
-                                # Prevent matching third party / AD columns to userName
-                                if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
-                                    continue
-                                    
-                                if kw in child_clean:
-                                    col_mapping_temp[src_col] = target_field
-                                    break
-                            if any(v == target_field for v in col_mapping_temp.values()):
-                                break
-                                
-                if target_field == 'firstName' and 'firstName' not in col_mapping_temp.values():
-                    for src_col, src_lower in headers_lower_temp.items():
-                        if src_col in col_mapping_temp: continue
-                        if src_lower in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
-                            col_mapping_temp[src_col] = '_fullName'
-                            break
-
+        headers_raw = [str(h).strip() for h in raw_df.iloc[header_row_idx].values]
+        col_mapping_temp = build_temp_col_mapping(headers_raw)
         is_sub_header = check_is_sub_header(raw_df, header_row_idx, col_mapping_temp)
         headers = build_unique_headers(raw_df, header_row_idx, is_sub_header)
         first_data_row = header_row_idx + 2 if is_sub_header else header_row_idx + 1
@@ -201,104 +138,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             continue
         
         # --- Map columns to our schema ---
-        col_mapping = {}  # source_col -> target_field
-        headers_lower = {h: h.lower().strip() for h in headers if 'suggested' not in h.lower()}
-        
-        # Pass 1: Direct and Semantic Alias Matches (highest priority)
-        for target_field in USER_MASTER_COLS:
-            if target_field == 'roles':
-                continue
-            if any(v == target_field for v in col_mapping.values()):
-                continue
-                
-            # Smart email preference: if both Personal and Official exist, prioritize Official
-            if target_field == 'email':
-                official_email_cols = [h for h in headers if h not in col_mapping and ('official' in h.lower() or 'work' in h.lower() or 'corp' in h.lower())]
-                general_email_cols = [h for h in headers if h not in col_mapping and ('email' in h.lower() or 'mail' in h.lower())]
-                best_email_col = None
-                for o_col in official_email_cols:
-                    if o_col in general_email_cols:
-                        best_email_col = o_col
-                        break
-                if best_email_col:
-                    col_mapping[best_email_col] = 'email'
-                    continue
-
-            tf_lower = target_field.lower()
-            # Direct match
-            found = False
-            for src_col, src_lower in headers_lower.items():
-                if src_col in col_mapping:
-                    continue
-                src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
-                if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
-                    col_mapping[src_col] = target_field
-                    found = True
-                    break
-            
-            if not found:
-                # Semantic/fuzzy match using SEMANTIC_MAPPINGS
-                if target_field in SEMANTIC_MAPPINGS:
-                    for alias in SEMANTIC_MAPPINGS[target_field]:
-                        for src_col, src_lower in headers_lower.items():
-                            if src_col in col_mapping:
-                                continue
-                            child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
-                            if alias == src_lower or src_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
-                                col_mapping[src_col] = target_field
-                                found = True
-                                break
-                        if found:
-                            break
-
-        # Pass 2: Broad Keyword and Full Name Splits (fallback priority)
-        for target_field in USER_MASTER_COLS:
-            if target_field == 'roles':
-                continue
-            if any(v == target_field for v in col_mapping.values()):
-                continue
-                
-            # Broad keyword match for common fields
-            broad_keywords = {
-                'departments': ['department', 'dept'],
-                'units': ['unit', 'ward', 'division'],
-                'designation': ['designation', 'position', 'title', 'rank', 'category'],
-                'userName': ['user name', 'username'],
-                'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
-                'email': ['email', 'e-mail', 'mail'],
-                'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
-                'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
-            }
-            if target_field in broad_keywords:
-                found = False
-                for kw in broad_keywords[target_field]:
-                    for src_col, src_lower in headers_lower.items():
-                        if src_col in col_mapping:
-                            continue
-                        child_part = src_lower.split('|')[-1] if '|' in src_lower else src_lower
-                        child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
-                        
-                        # Prevent matching third party / AD columns to userName
-                        if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
-                            continue
-                            
-                        if kw in child_clean:
-                            col_mapping[src_col] = target_field
-                            found = True
-                            break
-                    if found:
-                        break
-                        
-            # Handle "Full Name" / "Name" -> firstName + lastName split
-            if target_field == 'firstName' and 'firstName' not in col_mapping.values():
-                for src_col, src_lower in headers_lower.items():
-                    if src_col in col_mapping:
-                        continue
-                    src_clean = re.sub(r'\(.*?\)', '', src_lower).strip()
-                    if src_clean in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
-                        col_mapping[src_col] = '_fullName'
-                        break
+        col_mapping = build_temp_col_mapping(headers)
         
         # Check for running/floating roles columns in headers (must not be a tick-marked column)
         roles_col_names = []
@@ -386,7 +226,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             if role_cols:
                 assigned_roles = []
                 for rc_col, rc_name in role_cols.items():
-                    rv = str(row.iloc[rc_col] if rc_col < len(row) else '').strip()
+                    rv = str(row.get(rc_col, '')).strip()
                     # Check if the row has a valid tick in this role column
                     is_ticked = False
                     if 'module|' in rc_name.lower():

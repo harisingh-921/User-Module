@@ -85,7 +85,7 @@ if navigation == "Update User":
 
 if navigation == "New User":
     st.markdown("### Step 1: Upload User List(s)")
-    srcs = st.file_uploader("Upload an Excel or CSV file to begin automated extraction", type=["xlsx", "xls", "csv", "pdf", "docx"], accept_multiple_files=True, key="user_file_uploader")
+    srcs = st.file_uploader("Upload an Excel or CSV file to begin automated extraction", accept_multiple_files=True, key="user_file_uploader")
     if srcs:
         st.session_state["uploaded_files"] = srcs
     elif "uploaded_files" in st.session_state:
@@ -120,6 +120,9 @@ elif navigation == "Both (Segregation New & Existing Users)":
 
 # --- API KEY ---
 api_key = st.secrets.get("OPENAI_API_KEY", "") or st.secrets.get("GEMINI_API_KEY", "")
+if not api_key:
+    import os
+    api_key = os.environ.get("OPENAI_API_KEY", "") or os.environ.get("GEMINI_API_KEY", "")
 if not api_key:
     try:
         secrets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".streamlit", "secrets.toml")
