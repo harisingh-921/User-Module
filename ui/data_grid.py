@@ -10,7 +10,7 @@ import pandas as pd
 import streamlit as st
 from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 
-from utils.common import detect_duplicates_in_df
+from utils.common import detect_duplicates_in_df, resolve_duplicate_usernames
 from models.dataframe_contract import enforce_contract
 from utils.history import (
     _compute_ai_diff, _df_hash, _recalculate_duplicates, _update_users_hash,
