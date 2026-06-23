@@ -308,7 +308,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             if 'suggested' in src_lower:  # Ignore suggested column!
                 continue
             is_role_header = any(kw in src_lower for kw in role_keywords)
-            if is_role_header and src_col not in col_mapping and src_col != roles_col_name:
+            if is_role_header and src_col not in col_mapping and src_col not in roles_col_names:
                 col_vals = data_df[src_col].dropna().astype(str).str.strip()
                 # If it's a module column, any non-empty, non-negative value is considered a valid role assignment tick!
                 if 'module|' in src_lower:
@@ -322,6 +322,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
         
         # --- Build user records ---
         last_role_val = ""
+        last_roles = {}   # tracks the most-recent non-empty value per running-role column
         for _, row in data_df.iterrows():
             user = {col: '' for col in USER_MASTER_COLS}
             
