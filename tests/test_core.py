@@ -682,3 +682,49 @@ def test_gemini_model_selection_in_smart_context():
             mock_client.chat.completions.parse.assert_called_once()
             kwargs = mock_client.chat.completions.parse.call_args[1]
             assert kwargs["model"] == "gemini-1.5-flash"
+
+
+def test_segregation_existing_user_restricted_merge():
+    """Verify that existing users merge only email/phone from client, keeping everything else exactly from master."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+    
+    # Existing user with client data having values, but master data having blank names/roles/departments
+    client_data = [
+        {
+            "User Type": "Existing User",
+            "employeeId": "EMP101",
+            "userName": "testuser",
+            "firstName": "Dr.",
+            "lastName": "Pradeep",
+            "email": "drpradeep@example.com",
+            "phone": "9876543210",
+            "roles": "Admin",
+            "departments": "IT",
+            "master_employeeId": "EMP101",
+            "master_userName": "testuser",
+            "master_firstName": "",  # Empty name in master
+            "master_lastName": "",   # Empty name in master
+            "master_email": "",      # Empty email in master
+            "master_phone": "",      # Empty phone in master
+            "master_roles": "",      # Empty roles in master
+            "master_departments": "", # Empty departments in master
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    results = format_segregation_results(client_df)
+    existing_users = results['Existing Users']
+    
+    assert len(existing_users) == 1
+    user = existing_users.iloc[0]
+    
+    # 1. Names and other columns must be kept exactly as blank from master file
+    assert user["firstName"] == ""
+    assert user["lastName"] == ""
+    assert user["roles"] == ""
+    assert user["departments"] == ""
+    
+    # 2. Email and phone must fallback/merge from client file
+    assert user["email"] == "drpradeep@example.com"
+    assert user["phone"] == "9876543210"

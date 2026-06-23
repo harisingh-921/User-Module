@@ -121,46 +121,25 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     df[col] = ''
                     
         # Intelligent Merge for Existing Users
-        # Uses master data as base, overwrites with client data, applies special rules for roles and employeeId
+        # Uses master data exactly, except for email and phone columns which can merge/fallback
         for col in USER_MASTER_COLS:
             master_col = f"master_{col}"
             if master_col in df.columns:
-                if col == 'employeeId':
-                    def merge_emp_id(row):
+                if col in ('email', 'phone'):
+                    def merge_email_phone(row):
                         m_val = row.get(master_col, '')
                         c_val = row.get(col, '')
                         if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
                             return m_val
                         return c_val if pd.notna(c_val) else ''
-                    df[col] = df.apply(merge_emp_id, axis=1)
-                elif col == 'roles':
-                    def merge_roles(row):
-                        m_role = str(row.get(master_col, '')).strip()
-                        c_role = str(row.get(col, '')).strip()
-                        if m_role.lower() == 'nan': m_role = ''
-                        if c_role.lower() == 'nan': c_role = ''
-                        
-                        # Clean spaces around '|' inside individual roles first
-                        m_role = "|".join([r.strip() for r in m_role.split('|') if r.strip()])
-                        c_role = "|".join([r.strip() for r in c_role.split('|') if r.strip()])
-                        
-                        if m_role and c_role and m_role.lower() != c_role.lower():
-                            if c_role.lower() not in m_role.lower():
-                                return f"{m_role}|{c_role}"
-                            return m_role
-                        elif m_role:
-                            return m_role
-                        else:
-                            return c_role
-                    df[col] = df.apply(merge_roles, axis=1)
+                    df[col] = df.apply(merge_email_phone, axis=1)
                 else:
-                    def merge_general(row):
+                    def keep_master_exactly(row):
                         m_val = row.get(master_col, '')
-                        c_val = row.get(col, '')
-                        if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
-                            return m_val
-                        return c_val if pd.notna(c_val) else ''
-                    df[col] = df.apply(merge_general, axis=1)
+                        if pd.isna(m_val) or str(m_val).strip().lower() == 'nan':
+                            return ''
+                        return str(m_val).strip()
+                    df[col] = df.apply(keep_master_exactly, axis=1)
                     
         # Clean userName for new users: lowercase, no spaces, no special characters
         if is_new and 'userName' in df.columns:
