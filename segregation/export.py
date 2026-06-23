@@ -172,6 +172,9 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                         return s_m != s_f
                     df[f"_is_updated_{col}"] = df.apply(check_if_updated, axis=1)
                     
+        # For Existing Users, keep password column empty
+        if not is_new and 'password' in df.columns:
+            df['password'] = ''
                     
         # Clean userName for new users: lowercase, no spaces, no special characters
         if is_new and 'userName' in df.columns:
