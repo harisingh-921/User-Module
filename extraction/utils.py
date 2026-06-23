@@ -241,11 +241,23 @@ def build_temp_col_mapping(headers: list[str]) -> dict[str, str]:
     from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
 
     col_mapping_temp = {}
-    headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in headers}
+    headers_lower_temp = {str(h).strip(): str(h).lower().strip() for h in headers if 'suggested' not in str(h).lower()}
 
     for target_field in USER_MASTER_COLS:
         if target_field == 'roles':
             continue
+        if target_field == 'email':
+            # Smart email preference: if both Personal and Official exist, prioritize Official
+            official_email_cols = [h for h in headers if h not in col_mapping_temp and ('official' in str(h).lower() or 'work' in str(h).lower() or 'corp' in str(h).lower())]
+            general_email_cols = [h for h in headers if h not in col_mapping_temp and ('email' in str(h).lower() or 'mail' in str(h).lower())]
+            best_email_col = None
+            for o_col in official_email_cols:
+                if o_col in general_email_cols:
+                    best_email_col = o_col
+                    break
+            if best_email_col:
+                col_mapping_temp[best_email_col] = 'email'
+                continue
         tf_lower = target_field.lower()
         for src_col, src_lower in headers_lower_temp.items():
             if src_col in col_mapping_temp:
