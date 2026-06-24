@@ -682,3 +682,100 @@ def test_gemini_model_selection_in_smart_context():
             mock_client.chat.completions.parse.assert_called_once()
             kwargs = mock_client.chat.completions.parse.call_args[1]
             assert kwargs["model"] == "gemini-1.5-flash"
+
+
+def test_segregation_existing_user_restricted_merge():
+    """Verify that existing users merge only email/phone/roles/departments/units from client, keeping everything else exactly from master."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+    
+    # Existing user with client data having values, but master data having blank names/roles/departments/units
+    client_data = [
+        {
+            "User Type": "Existing User",
+            "employeeId": "EMP101",
+            "userName": "testuser",
+            "firstName": "Dr.",
+            "lastName": "Pradeep",
+            "email": "drpradeep@example.com",
+            "phone": "9876543210",
+            "roles": "Admin",
+            "departments": "IT",
+            "units": "Panchkula",
+            "master_employeeId": "EMP101",
+            "master_userName": "testuser",
+            "master_firstName": "",  # Empty name in master
+            "master_lastName": "",   # Empty name in master
+            "master_email": "",      # Empty email in master
+            "master_phone": "",      # Empty phone in master
+            "master_roles": "",      # Empty roles in master
+            "master_departments": "", # Empty departments in master
+            "master_units": "",       # Empty units in master
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    results = format_segregation_results(client_df)
+    existing_users = results['Existing Users']
+    
+    assert len(existing_users) == 1
+    user = existing_users.iloc[0]
+    
+    # 1. Names and other columns must be kept exactly as blank from master file
+    assert user["firstName"] == ""
+    assert user["lastName"] == ""
+    
+    # 2. Email, phone, roles, departments, and units must fallback/merge from client file
+    assert user["email"] == "drpradeep@example.com"
+    assert user["phone"] == "9876543210"
+    assert user["roles"] == "Admin"
+    assert user["departments"] == "IT"
+    assert user["units"] == "Panchkula"
+
+
+def test_segregation_existing_user_highlight_flags():
+    """Verify that _is_updated_<col> flags are set correctly for merged columns of existing users."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "Existing User",
+            "employeeId": "EMP101",
+            "userName": "testuser",
+            "email": "drpradeep@example.com",  # Fell back (master was empty)
+            "phone": "9876543210",           # Identical to master
+            "roles": "Admin|Doctor",          # Merged with master role 'Admin' -> new value is Admin|Doctor
+            "departments": "IT",             # Fell back (master was empty)
+            "units": "",                     # Both empty
+            "master_employeeId": "EMP101",
+            "master_userName": "testuser",
+            "master_email": "",
+            "master_phone": "9876543210",
+            "master_roles": "Admin",
+            "master_departments": "",
+            "master_units": "",
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    results = format_segregation_results(client_df)
+    existing_users = results['Existing Users']
+
+    assert len(existing_users) == 1
+    user = existing_users.iloc[0]
+
+    # Email was blank in master, populated from client -> updated
+    assert user["_is_updated_email"] == True
+
+    # Phone was identical -> not updated
+    assert user["_is_updated_phone"] == False
+
+    # Roles was merged (Admin -> Admin|Doctor) -> updated
+    assert user["_is_updated_roles"] == True
+
+    # Departments was blank in master, populated from client -> updated
+    assert user["_is_updated_departments"] == True
+
+    # Units was blank in both -> not updated
+    assert user["_is_updated_units"] == False
+
