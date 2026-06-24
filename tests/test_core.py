@@ -779,3 +779,37 @@ def test_segregation_existing_user_highlight_flags():
     # Units was blank in both -> not updated
     assert user["_is_updated_units"] == False
 
+
+def test_segregation_email_username_fallback():
+    """Verify format_segregation_results extracts names and username from email when names are empty/missing."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "New User",
+            "Employee ID": "EMP999",
+            "email": "rohit.kumar.singh@example.com",
+            "password": "",
+            "departments": "IT",
+            "roles": "Admin",
+            "units": "Delhi",
+            "locations": ""
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    results = format_segregation_results(client_df)
+    new_users = results['New Users']
+    
+    assert len(new_users) == 1
+    user = new_users.iloc[0]
+    
+    # Check that names are parsed from the email local part
+    assert user["firstName"] == "Rohit"
+    assert user["lastName"] == "Kumar Singh"
+    
+    # Check that username is generated based on parsed name parts
+    assert user["userName"] == "rohitkumarsingh"
+
+
