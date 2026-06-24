@@ -779,3 +779,35 @@ def test_segregation_existing_user_highlight_flags():
     # Units was blank in both -> not updated
     assert user["_is_updated_units"] == False
 
+
+def test_segregation_expanded_name_aliases():
+    """Verify format_segregation_results splits name when column is EmployeeName or Firstname/Lastname."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "New User",
+            "Employee ID": "EMP999",
+            "first_name": "Rohit",
+            "last_name": "Singh",
+            "password": "",
+            "departments": "IT",
+            "roles": "Admin",
+            "units": "Delhi",
+            "locations": ""
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    results = format_segregation_results(client_df)
+    new_users = results['New Users']
+    
+    assert len(new_users) == 1
+    user = new_users.iloc[0]
+    
+    assert user["firstName"] == "Rohit"
+    assert user["lastName"] == "Singh"
+    assert user["userName"] == "rohitsingh"
+
+

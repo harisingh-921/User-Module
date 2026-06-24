@@ -73,7 +73,7 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
         # Try to find and split Full Name if firstName is empty/missing
         from utils.common import has_value
         if 'firstName' not in df.columns or not df['firstName'].apply(has_value).any():
-            name_aliases = ('name', 'full name', 'fullname', 'staff name', 'employee name')
+            name_aliases = ('name', 'full name', 'fullname', 'staff name', 'employee name', 'display name', 'user name', 'username', 'login name', 'employee_name', 'staff_name', 'user_name')
             name_col = None
             for col_name in df.columns:
                 if str(col_name).strip().lower() in name_aliases:
@@ -119,7 +119,6 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                                 break
                 if not found and col not in df.columns:
                     df[col] = ''
-                    
         # Intelligent Merge for Existing Users
         # Uses master data exactly, except for email, phone, and roles columns which can merge/fallback
         for col in USER_MASTER_COLS:

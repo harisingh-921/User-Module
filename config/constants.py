@@ -6,11 +6,11 @@ USER_MASTER_COLS = [
 ]
 
 SEMANTIC_MAPPINGS = {
-    'userName': ['user name', 'username', 'login name', 'emp name'],
+    'userName': ['user name', 'username', 'login name', 'emp name', 'user_name', 'usernames'],
     'employeeId': ['emp id', 'employee id', 'employee no', 'staff code', 'associate id', 'uhid', 'id no', 'staff id', 'user id', 'login id', 'e_id', 'e id', 'eid'],
-    'firstName': ['first name', 'fname', 'name 1'],
-    'middleName': ['middle name', 'mname', 'mid name'],
-    'lastName': ['last name', 'lname', 'surname', 'family name', 'name 2'],
+    'firstName': ['first name', 'fname', 'name 1', 'firstname', 'first_name', 'firstnames'],
+    'middleName': ['middle name', 'mname', 'mid name', 'middlename', 'middle_name'],
+    'lastName': ['last name', 'lname', 'surname', 'family name', 'name 2', 'lastname', 'last_name', 'lastnames'],
     'email': ['e-mail', 'mail id', 'official email', 'email address'],
     'phone': ['contact', 'mobile', 'mobile no', 'cell', 'telephone', 'phone number', 'personal phone'],
     'departments': ['department', 'departments', 'dept', 'department name', 'specialty', 'cost center'],
