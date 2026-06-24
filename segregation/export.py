@@ -70,30 +70,7 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     if df[c_col].apply(has_value).any():
                         df[target_col] = df[c_col]
             
-        # Try to find and split Full Name if firstName is empty/missing
-        from utils.common import has_value
-        if 'firstName' not in df.columns or not df['firstName'].apply(has_value).any():
-            name_aliases = ('name', 'full name', 'fullname', 'staff name', 'employee name', 'display name', 'user name', 'username', 'login name', 'employee_name', 'staff_name', 'user_name')
-            name_col = None
-            for col_name in df.columns:
-                if str(col_name).strip().lower() in name_aliases:
-                    name_col = col_name
-                    break
-            if name_col:
-                def extract_first_name(val):
-                    if pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
-                        return ""
-                    parts = str(val).strip().split()
-                    return parts[0] if parts else ""
-                
-                def extract_last_name(val):
-                    if pd.isna(val) or str(val).strip().lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
-                        return ""
-                    parts = str(val).strip().split()
-                    return " ".join(parts[1:]) if len(parts) >= 2 else ""
 
-                df['firstName'] = df[name_col].apply(extract_first_name)
-                df['lastName'] = df[name_col].apply(extract_last_name)
 
         # Fallbacks to capture incorrectly named columns from the client file
         fallbacks = SEMANTIC_MAPPINGS
@@ -121,55 +98,56 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     df[col] = ''
         # Intelligent Merge for Existing Users
         # Uses master data exactly, except for email, phone, and roles columns which can merge/fallback
-        for col in USER_MASTER_COLS:
-            master_col = f"master_{col}"
-            if master_col in df.columns:
-                if col in ('email', 'phone', 'departments', 'units'):
-                    def merge_fallback_columns(row):
-                        m_val = row.get(master_col, '')
-                        c_val = row.get(col, '')
-                        if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
-                            return m_val
-                        return c_val if pd.notna(c_val) else ''
-                    df[col] = df.apply(merge_fallback_columns, axis=1)
-                elif col == 'roles':
-                    def merge_roles(row):
-                        m_role = str(row.get(master_col, '')).strip()
-                        c_role = str(row.get(col, '')).strip()
-                        if m_role.lower() == 'nan': m_role = ''
-                        if c_role.lower() == 'nan': c_role = ''
-                        
-                        # Clean spaces around '|' inside individual roles first
-                        m_role = "|".join([r.strip() for r in m_role.split('|') if r.strip()])
-                        c_role = "|".join([r.strip() for r in c_role.split('|') if r.strip()])
-                        
-                        if m_role and c_role and m_role.lower() != c_role.lower():
-                            if c_role.lower() not in m_role.lower():
-                                return f"{m_role}|{c_role}"
-                            return m_role
-                        elif m_role:
-                            return m_role
-                        else:
-                            return c_role
-                    df[col] = df.apply(merge_roles, axis=1)
-                else:
-                    def keep_master_exactly(row):
-                        m_val = row.get(master_col, '')
-                        if pd.isna(m_val) or str(m_val).strip().lower() == 'nan':
-                            return ''
-                        return str(m_val).strip()
-                    df[col] = df.apply(keep_master_exactly, axis=1)
+        if not is_new:
+            for col in USER_MASTER_COLS:
+                master_col = f"master_{col}"
+                if master_col in df.columns:
+                    if col in ('email', 'phone', 'departments', 'units'):
+                        def merge_fallback_columns(row):
+                            m_val = row.get(master_col, '')
+                            c_val = row.get(col, '')
+                            if pd.notna(m_val) and str(m_val).strip() != '' and str(m_val).strip().lower() != 'nan':
+                                return m_val
+                            return c_val if pd.notna(c_val) else ''
+                        df[col] = df.apply(merge_fallback_columns, axis=1)
+                    elif col == 'roles':
+                        def merge_roles(row):
+                            m_role = str(row.get(master_col, '')).strip()
+                            c_role = str(row.get(col, '')).strip()
+                            if m_role.lower() == 'nan': m_role = ''
+                            if c_role.lower() == 'nan': c_role = ''
+                            
+                            # Clean spaces around '|' inside individual roles first
+                            m_role = "|".join([r.strip() for r in m_role.split('|') if r.strip()])
+                            c_role = "|".join([r.strip() for r in c_role.split('|') if r.strip()])
+                            
+                            if m_role and c_role and m_role.lower() != c_role.lower():
+                                if c_role.lower() not in m_role.lower():
+                                    return f"{m_role}|{c_role}"
+                                return m_role
+                            elif m_role:
+                                return m_role
+                            else:
+                                return c_role
+                        df[col] = df.apply(merge_roles, axis=1)
+                    else:
+                        def keep_master_exactly(row):
+                            m_val = row.get(master_col, '')
+                            if pd.isna(m_val) or str(m_val).strip().lower() == 'nan':
+                                return ''
+                            return str(m_val).strip()
+                        df[col] = df.apply(keep_master_exactly, axis=1)
 
-                if not is_new and col in ('email', 'phone', 'departments', 'units', 'roles'):
-                    def check_if_updated(row):
-                        m_val = row.get(master_col, '')
-                        final_val = row.get(col, '')
-                        s_m = str(m_val).strip() if pd.notna(m_val) else ''
-                        s_f = str(final_val).strip() if pd.notna(final_val) else ''
-                        if s_m.lower() == 'nan': s_m = ''
-                        if s_f.lower() == 'nan': s_f = ''
-                        return s_m != s_f
-                    df[f"_is_updated_{col}"] = df.apply(check_if_updated, axis=1)
+                    if col in ('email', 'phone', 'departments', 'units', 'roles'):
+                        def check_if_updated(row):
+                            m_val = row.get(master_col, '')
+                            final_val = row.get(col, '')
+                            s_m = str(m_val).strip() if pd.notna(m_val) else ''
+                            s_f = str(final_val).strip() if pd.notna(final_val) else ''
+                            if s_m.lower() == 'nan': s_m = ''
+                            if s_f.lower() == 'nan': s_f = ''
+                            return s_m != s_f
+                        df[f"_is_updated_{col}"] = df.apply(check_if_updated, axis=1)
                     
         # For Existing Users, keep password column empty
         if not is_new and 'password' in df.columns:
@@ -183,12 +161,26 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                     fn = str(row.get('firstName', '')).strip()
                     mn = str(row.get('middleName', '')).strip()
                     ln = str(row.get('lastName', '')).strip()
-                    parts = []
-                    for name_part in [fn, mn, ln]:
-                        if pd.notna(name_part) and name_part.lower() not in ('', 'nan', 'none', '-', 'na', 'n/a'):
-                            parts.append(name_part)
-                    full_name = "".join(parts)
-                    uname = full_name
+                    
+                    # If we have explicit first or last name, combine them first
+                    if fn.lower() not in ('', 'nan', 'none') or ln.lower() not in ('', 'nan', 'none'):
+                        parts = []
+                        for name_part in [fn, mn, ln]:
+                            if pd.notna(name_part) and name_part.lower() not in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                                parts.append(name_part)
+                        uname = "".join(parts)
+                    else:
+                        # Otherwise, fallback to the full name column from the client file
+                        name_aliases = ('name', 'full name', 'fullname', 'staff name', 'employee name', 'display name', 'employee_name', 'staff_name')
+                        name_col = None
+                        for col_name in row.index:
+                            if str(col_name).strip().lower() in name_aliases:
+                                name_col = col_name
+                                break
+                        if name_col and pd.notna(row.get(name_col)) and str(row.get(name_col)).strip() != '':
+                            uname = str(row[name_col]).strip()
+                        else:
+                            uname = ""
                 cleaned = re.sub(r'[^a-zA-Z0-9]', '', uname).lower()
                 return cleaned
             df['userName'] = df.apply(clean_new_username, axis=1)

@@ -549,7 +549,7 @@ def test_no_merge_different_employee_ids():
 
 
 def test_segregation_full_name_fallback():
-    """Verify format_segregation_results detects and splits Employee Name when Username is not mapped."""
+    """Verify format_segregation_results does NOT split Employee Name and fields remain empty."""
     from segregation.export import format_segregation_results
     
     client_data = [
@@ -576,8 +576,8 @@ def test_segregation_full_name_fallback():
     assert len(new_users) == 1
     user = new_users.iloc[0]
     assert user["userName"] == "rohitkumarsingh"
-    assert user["firstName"] == "Rohit"
-    assert user["lastName"] == "Kumar Singh"
+    assert user["firstName"] == ""
+    assert user["lastName"] == ""
 
 
 def test_resolve_multi_value_fields_single_row():
@@ -781,7 +781,7 @@ def test_segregation_existing_user_highlight_flags():
 
 
 def test_segregation_expanded_name_aliases():
-    """Verify format_segregation_results splits name when column is EmployeeName or Firstname/Lastname."""
+    """Verify format_segregation_results maps explicit name columns but does NOT split full name columns."""
     from segregation.export import format_segregation_results
     import pandas as pd
 
@@ -791,6 +791,7 @@ def test_segregation_expanded_name_aliases():
             "Employee ID": "EMP999",
             "first_name": "Rohit",
             "last_name": "Singh",
+            "Employee Name": "Rohit Kumar Singh", # Should be ignored (not split)
             "password": "",
             "departments": "IT",
             "roles": "Admin",
@@ -809,5 +810,79 @@ def test_segregation_expanded_name_aliases():
     assert user["firstName"] == "Rohit"
     assert user["lastName"] == "Singh"
     assert user["userName"] == "rohitsingh"
+
+
+def test_segregation_new_user_preserve_client_fields():
+    """Verify that new users' fields (userName, firstName, lastName) are preserved from explicit client fields and not split from full name columns."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "New User",
+            "Employee ID": "EMP999",
+            "Employee Name": "Dr. Amit Kumar Patel", # Should not be split, firstName/lastName remain empty since not explicitly provided
+            "userName": "amitpatel",
+            "password": "",
+            "departments": "Emergency",
+            "roles": "INCIDENT",
+            "units": "Ranchi",
+            # Simulate master columns being present in the combined dataframe
+            "master_userName": "amitpatel",
+            "master_firstName": "Amit",
+            "master_lastName": "Patel",
+            "master_employeeId": "EMP999"
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    results = format_segregation_results(client_df)
+    new_users = results['New Users']
+
+    assert len(new_users) == 1
+    user = new_users.iloc[0]
+
+    assert user["firstName"] == ""
+    assert user["lastName"] == ""
+    assert user["userName"] == "amitpatel"
+    assert user["departments"] == "Emergency"
+    assert user["units"] == "Ranchi"
+
+
+def test_segregation_username_fallback_from_employee_name():
+    """Verify that format_segregation_results generates userName from Employee Name and keeps firstName/lastName blank."""
+    from segregation.export import format_segregation_results
+    import pandas as pd
+
+    client_data = [
+        {
+            "User Type": "New User",
+            "User Login ID": "RN-RAN-00034",
+            "Employee Name": "Loknath Sahu",
+            "password": "Paras@123",
+            "departments": "Finance_and_Account",
+            "email": "loknath.sahu@parashospital",
+            "mobile": "9534185264",
+            "roles": "INCIDENT",
+            "units": "Ranchi"
+        }
+    ]
+    client_df = pd.DataFrame(client_data)
+    
+    priority_mappings = [
+        {"name": "Employee ID", "client_col": "User Login ID", "master_col": "Employee Id"}
+    ]
+    
+    results = format_segregation_results(client_df, priority_mappings)
+    new_users = results['New Users']
+
+    assert len(new_users) == 1
+    user = new_users.iloc[0]
+
+    assert user["userName"] == "loknathsahu"
+    assert user["employeeId"] == "RN-RAN-00034"
+    assert user["email"] == "loknath.sahu@parashospital"
+    assert user["phone"] == "9534185264"
+    assert user["firstName"] == ""
+    assert user["lastName"] == ""
 
 
