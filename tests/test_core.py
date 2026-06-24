@@ -780,8 +780,8 @@ def test_segregation_existing_user_highlight_flags():
     assert user["_is_updated_units"] == False
 
 
-def test_segregation_email_username_fallback():
-    """Verify format_segregation_results extracts names and username from email when names are empty/missing."""
+def test_segregation_expanded_name_aliases():
+    """Verify format_segregation_results splits name when column is EmployeeName or Firstname/Lastname."""
     from segregation.export import format_segregation_results
     import pandas as pd
 
@@ -789,7 +789,8 @@ def test_segregation_email_username_fallback():
         {
             "User Type": "New User",
             "Employee ID": "EMP999",
-            "email": "rohit.kumar.singh@example.com",
+            "first_name": "Rohit",
+            "last_name": "Singh",
             "password": "",
             "departments": "IT",
             "roles": "Admin",
@@ -805,11 +806,8 @@ def test_segregation_email_username_fallback():
     assert len(new_users) == 1
     user = new_users.iloc[0]
     
-    # Check that names are parsed from the email local part
     assert user["firstName"] == "Rohit"
-    assert user["lastName"] == "Kumar Singh"
-    
-    # Check that username is generated based on parsed name parts
-    assert user["userName"] == "rohitkumarsingh"
+    assert user["lastName"] == "Singh"
+    assert user["userName"] == "rohitsingh"
 
 

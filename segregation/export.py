@@ -119,37 +119,6 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                                 break
                 if not found and col not in df.columns:
                     df[col] = ''
-                    
-        # Fallback: if firstName/lastName are still empty, try to extract from email local part
-        if 'firstName' in df.columns and not df['firstName'].apply(has_value).any():
-            if 'email' in df.columns and df['email'].apply(has_value).any():
-                def extract_first_name_from_email(row):
-                    fn = str(row.get('firstName', '')).strip()
-                    if fn and fn.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
-                        return fn
-                    email = str(row.get('email', '')).strip()
-                    if '@' in email:
-                        local = email.split('@')[0]
-                        parts = local.split('.')
-                        if parts:
-                            return parts[0].title()
-                    return ""
-                
-                def extract_last_name_from_email(row):
-                    ln = str(row.get('lastName', '')).strip()
-                    if ln and ln.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
-                        return ln
-                    email = str(row.get('email', '')).strip()
-                    if '@' in email:
-                        local = email.split('@')[0]
-                        parts = local.split('.')
-                        if len(parts) >= 2:
-                            return " ".join(parts[1:]).title()
-                    return ""
-                
-                df['firstName'] = df.apply(extract_first_name_from_email, axis=1)
-                df['lastName'] = df.apply(extract_last_name_from_email, axis=1)
-                    
         # Intelligent Merge for Existing Users
         # Uses master data exactly, except for email, phone, and roles columns which can merge/fallback
         for col in USER_MASTER_COLS:
@@ -220,15 +189,8 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
                             parts.append(name_part)
                     full_name = "".join(parts)
                     uname = full_name
-                
-                # If still empty, fall back to email prefix
-                if not uname.strip():
-                    email = str(row.get('email', '')).strip()
-                    if email and '@' in email:
-                        uname = email.split('@')[0]
-                
                 cleaned = re.sub(r'[^a-zA-Z0-9]', '', uname).lower()
-                return cleaned if cleaned else 'user'
+                return cleaned
             df['userName'] = df.apply(clean_new_username, axis=1)
 
         # Default isEnabled to 'Yes' for new users if blank
