@@ -19,6 +19,232 @@ from utils.history import (
 
 _LARGE_DATASET_ROWS = 500   # Row threshold to enable AgGrid large-dataset mode
 
+_CELL_CLICK_MODAL_JS = JsCode("""
+function(params) {
+    // Only trigger for editable data columns (not '#' or hidden ones)
+    if (params.column.getId() === '#' || !params.column.isCellEditable(params.node)) {
+        return;
+    }
+    
+    const colId = params.column.getId();
+    const colName = params.column.getColDef().headerName || colId;
+    const initialVal = params.value || '';
+    
+    // Ensure document click listener is initialized once to close on outside clicks
+    if (typeof window._editorClickListenerInitialized === 'undefined') {
+        window._editorClickListenerInitialized = true;
+        document.addEventListener('mousedown', function(e) {
+            const p = document.getElementById('ag-grid-floating-editor');
+            if (p && !p.contains(e.target)) {
+                p.remove();
+            }
+        });
+    }
+    
+    // Get or Create Floating Editor
+    let popup = document.getElementById('ag-grid-floating-editor');
+    if (!popup) {
+        popup = document.createElement('div');
+        popup.id = 'ag-grid-floating-editor';
+        popup.style.position = 'fixed';
+        popup.style.zIndex = '99999';
+        popup.style.backgroundColor = '#0f172a';
+        popup.style.color = '#f1f5f9';
+        popup.style.width = '420px';
+        popup.style.padding = '0';
+        popup.style.borderRadius = '10px';
+        popup.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.4), 0 10px 10px -5px rgba(0, 0, 0, 0.3)';
+        popup.style.border = '1px solid #3b82f6';
+        popup.style.borderLeft = '5px solid #60a5fa';
+        popup.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        popup.style.display = 'flex';
+        popup.style.flexDirection = 'column';
+        popup.style.boxSizing = 'border-box';
+        popup.style.resize = 'both';
+        popup.style.overflow = 'hidden';
+        popup.style.minWidth = '320px';
+        popup.style.minHeight = '180px';
+        document.body.appendChild(popup);
+    }
+    
+    // Position Popup near the click event
+    const clickEvent = params.event || { clientX: window.innerWidth / 2 - 210, clientY: window.innerHeight / 2 - 120 };
+    let x = clickEvent.clientX + 15;
+    let y = clickEvent.clientY - 20;
+    
+    // Prevent rendering off-screen
+    if (x + 420 > window.innerWidth) {
+        x = clickEvent.clientX - 440;
+    }
+    if (x < 10) x = 10;
+    
+    if (y + 320 > window.innerHeight) {
+        y = window.innerHeight - 340;
+    }
+    if (y < 10) y = 10;
+    
+    popup.style.left = x + 'px';
+    popup.style.top = y + 'px';
+    
+    // Clear and build content
+    popup.innerHTML = '';
+    
+    // Create Header bar (for dragging)
+    const header = document.createElement('div');
+    header.style.backgroundColor = '#1e293b';
+    header.style.padding = '10px 14px';
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.style.cursor = 'move';
+    header.style.borderBottom = '1px solid #334155';
+    header.style.userSelect = 'none';
+    
+    const title = document.createElement('div');
+    title.style.fontSize = '13px';
+    title.style.fontWeight = '700';
+    title.style.color = '#60a5fa';
+    title.innerText = '✏️ Edit ' + colName;
+    header.appendChild(title);
+    
+    const closeBtn = document.createElement('div');
+    closeBtn.innerHTML = '&times;';
+    closeBtn.style.cursor = 'pointer';
+    closeBtn.style.fontSize = '18px';
+    closeBtn.style.color = '#94a3b8';
+    closeBtn.style.lineHeight = '1';
+    closeBtn.onclick = () => popup.remove();
+    closeBtn.onmouseenter = () => closeBtn.style.color = '#f1f5f9';
+    closeBtn.onmouseleave = () => closeBtn.style.color = '#94a3b8';
+    header.appendChild(closeBtn);
+    
+    popup.appendChild(header);
+    
+    // Dragging Logic
+    let isDragging = false;
+    let dragStartX, dragStartY;
+    let popupStartX, popupStartY;
+    
+    header.onmousedown = function(e) {
+        if (e.target === closeBtn) return;
+        isDragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        popupStartX = parseInt(popup.style.left) || 0;
+        popupStartY = parseInt(popup.style.top) || 0;
+        
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        e.preventDefault();
+    };
+    
+    function onMouseMove(e) {
+        if (!isDragging) return;
+        const dx = e.clientX - dragStartX;
+        const dy = e.clientY - dragStartY;
+        popup.style.left = (popupStartX + dx) + 'px';
+        popup.style.top = (popupStartY + dy) + 'px';
+    }
+    
+    function onMouseUp() {
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+    }
+    
+    // Body container
+    const body = document.createElement('div');
+    body.style.padding = '14px';
+    body.style.display = 'flex';
+    body.style.flexDirection = 'column';
+    body.style.gap = '10px';
+    body.style.flex = '1';
+    body.style.boxSizing = 'border-box';
+    body.style.overflow = 'hidden';
+    
+    // Textarea
+    const textarea = document.createElement('textarea');
+    textarea.value = initialVal;
+    textarea.style.width = '100%';
+    textarea.style.flex = '1';
+    textarea.style.minHeight = '100px';
+    textarea.style.backgroundColor = '#1e293b';
+    textarea.style.color = '#f8fafc';
+    textarea.style.border = '1px solid #475569';
+    textarea.style.borderRadius = '6px';
+    textarea.style.padding = '8px';
+    textarea.style.fontSize = '13px';
+    textarea.style.fontFamily = 'inherit';
+    textarea.style.resize = 'none';
+    textarea.style.boxSizing = 'border-box';
+    textarea.style.outline = 'none';
+    textarea.onfocus = () => textarea.style.borderColor = '#3b82f6';
+    textarea.onblur = () => textarea.style.borderColor = '#475569';
+    body.appendChild(textarea);
+    
+    // Button Container
+    const btnContainer = document.createElement('div');
+    btnContainer.style.display = 'flex';
+    btnContainer.style.justifyContent = 'flex-end';
+    btnContainer.style.gap = '8px';
+    btnContainer.style.marginTop = '4px';
+    
+    const cancelBtn = document.createElement('button');
+    cancelBtn.innerText = 'Cancel';
+    cancelBtn.style.backgroundColor = '#334155';
+    cancelBtn.style.color = '#f1f5f9';
+    cancelBtn.style.border = 'none';
+    cancelBtn.style.padding = '6px 12px';
+    cancelBtn.style.borderRadius = '6px';
+    cancelBtn.style.cursor = 'pointer';
+    cancelBtn.style.fontSize = '12px';
+    cancelBtn.style.fontWeight = '600';
+    cancelBtn.onmouseenter = () => cancelBtn.style.backgroundColor = '#475569';
+    cancelBtn.onmouseleave = () => cancelBtn.style.backgroundColor = '#334155';
+    cancelBtn.onclick = () => {
+        popup.remove();
+    };
+    
+    const saveBtn = document.createElement('button');
+    saveBtn.innerText = 'Save Changes';
+    saveBtn.style.backgroundColor = '#3b82f6';
+    saveBtn.style.color = '#ffffff';
+    saveBtn.style.border = 'none';
+    saveBtn.style.padding = '6px 12px';
+    saveBtn.style.borderRadius = '6px';
+    saveBtn.style.cursor = 'pointer';
+    saveBtn.style.fontSize = '12px';
+    saveBtn.style.fontWeight = '600';
+    saveBtn.onmouseenter = () => saveBtn.style.backgroundColor = '#2563eb';
+    saveBtn.onmouseleave = () => saveBtn.style.backgroundColor = '#3b82f6';
+    saveBtn.onclick = () => {
+        const newVal = textarea.value;
+        params.node.setDataValue(colId, newVal);
+        popup.remove();
+    };
+    
+    // Keyboard listener for Ctrl+Enter and Esc
+    textarea.onkeydown = function(e) {
+        if (e.key === 'Enter' && e.ctrlKey) {
+            saveBtn.click();
+            e.preventDefault();
+        } else if (e.key === 'Escape') {
+            cancelBtn.click();
+            e.preventDefault();
+        }
+    };
+    
+    btnContainer.appendChild(cancelBtn);
+    btnContainer.appendChild(saveBtn);
+    body.appendChild(btnContainer);
+    
+    popup.appendChild(body);
+    
+    // Focus textarea
+    setTimeout(() => textarea.focus(), 50);
+}
+""")
+
 
 def _detect_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     """Add _is_duplicate_user and _is_duplicate_username columns."""
@@ -44,7 +270,15 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     for col in user_cols:
         if col not in visible_cols:
             gb.configure_column(col, hide=True)
-        elif col in ["thirdPartyUsername", "passwordPolicy", "lastWorkingDate", "dateOfJoining", "shiftDuration"]:
+            continue
+
+
+
+        # Enable large text editor popup for columns with long data lists
+        if col in ["roles", "departments", "units", "locations", "userName"]:
+            gb.configure_column(col, cellEditor="agLargeTextCellEditor", cellEditorParams={"cols": 50, "rows": 6})
+
+        if col in ["thirdPartyUsername", "passwordPolicy", "lastWorkingDate", "dateOfJoining", "shiftDuration"]:
             gb.configure_column(col, minWidth=180)
         elif col == "userName":
             gb.configure_column(col, cellStyle=JsCode("""
@@ -84,7 +318,8 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
             enableRangeSelection=True,
             enableFillHandle=True,
             undoRedoCellEditing=False,
-            getRowStyle=_row_style_js
+            getRowStyle=_row_style_js,
+            onCellClicked=_CELL_CLICK_MODAL_JS
         )
     else:
         gb.configure_grid_options(
@@ -94,7 +329,8 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
             enableFillHandle=True,
             undoRedoCellEditing=True,
             undoRedoCellEditingLimit=20,
-            getRowStyle=_row_style_js
+            getRowStyle=_row_style_js,
+            onCellClicked=_CELL_CLICK_MODAL_JS
         )
     return gb
 

@@ -1,4 +1,4 @@
-# user_masters/app.py
+# user_masters/app.py - floating editor loaded v2
 """
 Thin orchestrator — delegates all heavy UI work to dedicated modules:
   • ui.state_manager  – session-state defaults
@@ -211,5 +211,4 @@ if 'df_users' in st.session_state:
 else:
     st.info("👋 Upload a file above to begin automated extraction.")
 
-# Reload trigger comment to refresh streamlit app state
-
+# Reload trigger comment to refresh streamlit app state: 2026-06-25 16:38:00
