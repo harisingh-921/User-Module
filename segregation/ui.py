@@ -68,7 +68,7 @@ def render_segregation_ui():
             selected_options = st.multiselect(
                 "Select Matching Fields (Priority Order)",
                 options=standard_options,
-                default=["Employee ID", "Username"]
+                default=["Employee ID", "Mail"]
             )
             
             priority_mappings = []

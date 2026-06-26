@@ -215,7 +215,15 @@ def detect_tick_role_columns(headers: list[str], data_rows_df: pd.DataFrame) -> 
         'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
         'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
         'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
-        'infection', 'statistics', 'survey', 'feedback', 'complaint'
+        'infection', 'statistics', 'survey', 'feedback', 'complaint',
+        
+        # New Module / Process Keywords
+        'pre', 'pro', 'pra', 'compliance', 'document', 'dms', 'ticketing', 'employee',
+        'cpc', 'credential', 'oppe', 'fppe', 'committee', 'competency', 'lms', 'asset', 'unit',
+        
+        # New Title / Role Keywords
+        'translator', 'approver', 'chairperson', 'secretary', 'convenor', 'member',
+        'trainee', 'trainer', 'privileges', 'masking', 'pill', 'access', 'chat'
     ]
     for col_idx, header in enumerate(headers):
         header_lower = header.lower()
