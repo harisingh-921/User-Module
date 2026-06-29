@@ -54,7 +54,7 @@ def render_sidebar():
         <div style='display:flex; align-items:center; gap:8px; padding: 0 2px 10px 2px;'>
             <span style='background:#dbeafe; color:#1d4ed8; font-size:10px; font-weight:800; letter-spacing:1.5px;
                          padding:3px 8px; border-radius:20px;'>STEP 1</span>
-            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Global Settings</span>
+            <span style='font-size:12px; font-weight:600; color:#334155; letter-spacing:0.3px;'>Password Defaults</span>
         </div>
         """, unsafe_allow_html=True)
 

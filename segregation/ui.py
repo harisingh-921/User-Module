@@ -22,7 +22,7 @@ def guess_col_index(cols, opt_name):
         "Employee ID": ["employeeid", "employee id", "emp id", "employee no", "employeeno", "staff id"],
         "Mail": ["email", "mail", "email address", "e-mail"],
         "Mobile Number": ["mobile", "phone", "mobile number", "contact", "phone number"],
-        "Username": ["username", "user name", "name", "full name"]
+        "Username": ["username", "user name", "name", "full name", "employee name"]
     }
     opt_aliases = aliases.get(opt_name, [opt_name.lower()])
     

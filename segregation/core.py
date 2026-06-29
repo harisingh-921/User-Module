@@ -12,13 +12,15 @@ def normalize_value(val: Any, col_name: str) -> str:
     
     if 'email' in col_lower or 'mail' in col_lower:
         return val_str.lower()
+    elif 'employee' in col_lower or 'emp' in col_lower:
+        return val_str.lower()
     elif 'mobile' in col_lower or 'phone' in col_lower:
         # Remove spaces and non-numeric characters (keep + for country codes)
         return re.sub(r'[^\d+]', '', val_str)
     elif 'user' in col_lower and 'name' in col_lower:
         return val_str.lower()
     else:
-        # For Employee ID and others
+        # For other custom columns
         return val_str
 
 def detect_duplicates(df: pd.DataFrame, priority_mappings: List[dict]) -> pd.DataFrame:
