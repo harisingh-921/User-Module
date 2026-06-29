@@ -890,4 +890,4 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
                 continue
             break  # Non-retryable error
 
-    return None, f"AI command failed after {_AI_RETRY_ATTEMPTS} attempt(s): {last_error}"
+    return None, f"AI command failed after {AI_RETRY_ATTEMPTS} attempt(s): {last_error}"

@@ -162,7 +162,15 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
             'audit', 'non-conformance', 'incident', 'qi', 'risk', 'proms', 'accreditation',
             'role', 'user', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion',
             'officer', 'owner', 'auditor', 'manager', 'coordinator', 'module', 'hic',
-            'infection', 'statistics', 'survey', 'feedback', 'complaint'
+            'infection', 'statistics', 'survey', 'feedback', 'complaint',
+            
+            # New Module / Process Keywords
+            'pre', 'pro', 'pra', 'compliance', 'document', 'dms', 'ticketing', 'employee',
+            'cpc', 'credential', 'oppe', 'fppe', 'committee', 'competency', 'lms', 'asset', 'unit',
+            
+            # New Title / Role Keywords
+            'translator', 'approver', 'chairperson', 'secretary', 'convenor', 'member',
+            'trainee', 'trainer', 'privileges', 'masking', 'pill', 'access', 'chat'
         ]
         for src_col in headers:
             src_lower = str(src_col).lower()
