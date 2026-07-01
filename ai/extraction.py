@@ -659,6 +659,16 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 
+def find_matching_column(col_name, columns):
+    """Find a column name in columns list ignoring case and leading/trailing whitespace."""
+    if not col_name:
+        return None
+    cleaned_col = str(col_name).strip().lower()
+    for col in columns:
+        if str(col).strip().lower() == cleaned_col:
+            return col
+    return None
+
 def apply_ai_smart_context(df, command, api_key, context_df=None):
     """
     Applies natural language commands to the user dataframe using AI.
@@ -735,11 +745,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Mapping Mode
             if res_data.mapping_intent is not None and context_df is not None:
                 intent = res_data.mapping_intent
-                target_col = intent.target_col
-                lookup_col = intent.lookup_col
-                value_col = intent.value_col
+                target_col = find_matching_column(intent.target_col, df.columns)
+                lookup_col = find_matching_column(intent.lookup_col, context_df.columns)
+                value_col = find_matching_column(intent.value_col, context_df.columns)
                 
-                if target_col in df.columns and lookup_col in context_df.columns and value_col in context_df.columns:
+                if target_col and lookup_col and value_col:
                     # Create case-insensitive lookup dict
                     lookup_dict = {str(k).strip().lower(): v for k, v in zip(context_df[lookup_col], context_df[value_col]) if pd.notna(k)}
                     
@@ -764,11 +774,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Replace Mode
             if res_data.replace_intent is not None:
                 intent = res_data.replace_intent
-                target_col = intent.target_col
+                target_col = find_matching_column(intent.target_col, df.columns)
                 search_text = intent.search_text
                 replace_text = intent.replace_text
                 
-                if target_col in df.columns and search_text:
+                if target_col and search_text:
                     new_df = df.copy()
                     escaped_search = re.escape(search_text)
                     
@@ -788,14 +798,14 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Set-Value Mode
             if res_data.set_value_intent is not None:
                 intent = res_data.set_value_intent
-                target_col = intent.target_col
+                target_col = find_matching_column(intent.target_col, df.columns)
                 new_value = intent.value
-                filter_col = intent.filter_col
+                filter_col = find_matching_column(intent.filter_col, df.columns) if intent.filter_col else None
                 filter_value = intent.filter_value
 
-                if target_col and target_col in AI_ALLOWED_EDIT_COLS and target_col in df.columns:
+                if target_col and target_col in AI_ALLOWED_EDIT_COLS:
                     new_df = df.copy()
-                    if filter_col and filter_value is not None and filter_col in df.columns:
+                    if filter_col and filter_value is not None:
                         # Filtered set: only rows where filter_col matches filter_value (case-insensitive)
                         mask = new_df[filter_col].astype(str).str.strip().str.lower() == str(filter_value).strip().lower()
                         affected = int(mask.sum())
