@@ -21,10 +21,13 @@ _LARGE_DATASET_ROWS = 500   # Row threshold to enable AgGrid large-dataset mode
 
 _CELL_CLICK_MODAL_JS = JsCode("""
 function(params) {
-    // Only trigger for editable data columns (not '#' or hidden ones)
-    if (params.column.getId() === '#' || !params.column.isCellEditable(params.node)) {
+    // Only trigger for data columns (not '#')
+    if (params.column.getId() === '#') {
         return;
     }
+    
+    // Stop any active AgGrid inline editing
+    params.api.stopEditing(true);
     
     const colId = params.column.getId();
     const colName = params.column.getColDef().headerName || colId;
@@ -256,7 +259,7 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     """Create and return AgGrid GridOptionsBuilder."""
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(
-        editable=True, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
+        editable=False, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
     )
     # '#' always pinned left
     gb.configure_column("#", headerName="#", width=140, minWidth=120, maxWidth=180, pinned='left', editable=False,
@@ -319,7 +322,8 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
             enableFillHandle=True,
             undoRedoCellEditing=False,
             getRowStyle=_row_style_js,
-            onCellClicked=_CELL_CLICK_MODAL_JS
+            onCellDoubleClicked=_CELL_CLICK_MODAL_JS,
+            suppressClickEdit=True
         )
     else:
         gb.configure_grid_options(
@@ -330,7 +334,8 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
             undoRedoCellEditing=True,
             undoRedoCellEditingLimit=20,
             getRowStyle=_row_style_js,
-            onCellClicked=_CELL_CLICK_MODAL_JS
+            onCellDoubleClicked=_CELL_CLICK_MODAL_JS,
+            suppressClickEdit=True
         )
     return gb
 
