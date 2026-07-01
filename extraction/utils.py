@@ -328,3 +328,74 @@ def build_temp_col_mapping(headers: list[str]) -> dict[str, str]:
 
     return col_mapping_temp
 
+
+def align_extracted_users_by_registry(all_users: list[dict]) -> list[dict]:
+    """
+    Registry-based smart post-processing alignment.
+    Re-aligns shifted or missing fields (like email/employeeId) in multi-user rows.
+    """
+    if not all_users:
+        return all_users
+
+    # 1. Build a registry of clean reference user profiles
+    # CRITICAL: Only non-split (single-user) rows are trusted as reference data.
+    # Split rows may have shifted/misaligned IDs and must NEVER be registered.
+    registry = {}
+    for u in all_users:
+        # Only trust single-user rows as reference profiles
+        if u.get('_is_split_user', False):
+            continue
+            
+        first = str(u.get('firstName', '')).strip()
+        last = str(u.get('lastName', '')).strip()
+        eid = str(u.get('employeeId', '')).strip()
+        email = str(u.get('email', '')).strip()
+        phone = str(u.get('phone', '')).strip()
+        uname = str(u.get('userName', '')).strip()
+        
+        if not (first or last):
+            continue
+            
+        name_key = (first.lower(), last.lower())
+        
+        if eid or email:
+            if name_key not in registry:
+                registry[name_key] = {}
+            if eid:
+                registry[name_key]['employeeId'] = eid
+            if email:
+                registry[name_key]['email'] = email
+            if phone:
+                registry[name_key]['phone'] = phone
+            if uname and uname.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
+                registry[name_key]['userName'] = uname
+
+    # 2. Iterate and correct split users using the registry reference
+    for u in all_users:
+        if not u.get('_is_split_user', False):
+            continue
+            
+        first = str(u.get('firstName', '')).strip()
+        last = str(u.get('lastName', '')).strip()
+        if not (first or last):
+            continue
+            
+        name_key = (first.lower(), last.lower())
+        if name_key in registry:
+            reg_profile = registry[name_key]
+            
+            # Direct alignment correction from verified registry profile
+            if 'email' in reg_profile:
+                u['email'] = reg_profile['email']
+            if 'employeeId' in reg_profile:
+                u['employeeId'] = reg_profile['employeeId']
+            if 'phone' in reg_profile:
+                u['phone'] = reg_profile['phone']
+            if 'userName' in reg_profile:
+                u['userName'] = reg_profile['userName']
+            else:
+                # Clear username to force clean regeneration
+                u['userName'] = ''
+                    
+    return all_users
+

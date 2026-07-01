@@ -9,7 +9,8 @@ from models.dataframe_contract import enforce_contract
 from utils.common import is_empty_value, has_value
 from extraction.utils import (
     filter_sheets_by_intent, detect_header_row, check_is_sub_header,
-    build_unique_headers, detect_tick_role_columns, build_temp_col_mapping
+    build_unique_headers, detect_tick_role_columns, build_temp_col_mapping,
+    align_extracted_users_by_registry
 )
 
 def resolve_multi_value_fields(user):
@@ -55,6 +56,34 @@ def resolve_multi_value_fields(user):
                 user[f] = parts[0]
                 
     return user
+
+
+def split_multi_value_field(val: str) -> list[str]:
+    """
+    Splits a multi-value string by pipe or newline characters,
+    and cleans up any numbered/bullet prefixes (e.g., "1. Vidhya" -> "Vidhya")
+    and trailing commas/semicolons.
+    """
+    if not val:
+        return []
+    
+    val_str = str(val).replace('\r\n', '\n').replace('\r', '\n')
+    if not val_str.strip():
+        return []
+        
+    if '|' in val_str:
+        parts = [p.strip() for p in val_str.split('|')]
+    elif '\n' in val_str:
+        parts = [p.strip() for p in val_str.split('\n')]
+    else:
+        parts = [val_str.strip()]
+        
+    cleaned_parts = []
+    for p in parts:
+        cleaned = re.sub(r'^\d+\.\s*', '', p).strip()
+        cleaned = cleaned.rstrip(',').rstrip(';').strip()
+        cleaned_parts.append(cleaned)
+    return cleaned_parts
 
 
 def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent=""):
@@ -201,6 +230,13 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 
             # Running role mapping (gather from all running role columns)
             row_roles = []
+            
+            # Sheet-level role mapping if sheet name contains role keywords
+            sheet_role_keywords = ['role', 'audit', 'validation', 'incharge', 'admin', 'viewer', 'reporter', 'analyst', 'champion', 'officer', 'owner', 'auditor', 'manager', 'coordinator', 'user', 'incident', 'qi', 'risk']
+            clean_sheet = sheet_name.strip()
+            if any(kw in clean_sheet.lower() for kw in sheet_role_keywords):
+                row_roles.append(clean_sheet)
+
             for r_col in roles_col_names:
                 rv = str(row.get(r_col, '')).strip()
                 if has_value(rv):
@@ -215,9 +251,12 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                 user['roles'] = '|'.join(row_roles)
             
             for src_col, target_field in col_mapping.items():
-                val = str(row.get(src_col, '')).strip()
-                if is_empty_value(val):
+                raw_val = str(row.get(src_col, ''))
+                val_check = raw_val.strip()
+                if is_empty_value(val_check):
                     val = ''
+                else:
+                    val = raw_val
                 
                 if target_field == '_fullName':
                     # Split "Full Name" into firstName + lastName
@@ -267,26 +306,32 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         if not user.get('employeeId'):
                             user['employeeId'] = match.group(2).strip()
  
-            # --- SPLIT MULTI-USER ROWS (PIPE SEPARATED DELIMITER) ---
+            # --- SPLIT MULTI-USER ROWS (PIPE OR NEWLINE SEPARATED DELIMITER) ---
             split_trigger_fields = ['firstName', 'lastName', 'employeeId']
-            has_split_trigger = any('|' in user.get(f, '') for f in split_trigger_fields)
+            has_split_trigger = any(
+                '|' in str(user.get(f, '')) or '\n' in str(user.get(f, '')).replace('\r\n', '\n')
+                for f in split_trigger_fields
+            )
             
             if has_split_trigger:
                 identity_fields = ['firstName', 'middleName', 'lastName', 'userName', 'employeeId', 'email', 'phone']
+                
+                # Split each identity field and find max parts
+                split_fields = {}
                 max_parts = 1
                 for f in identity_fields:
-                    val = user.get(f, '')
-                    if '|' in val:
-                        parts = [p.strip() for p in val.split('|')]
-                        max_parts = max(max_parts, len(parts))
+                    val = str(user.get(f, ''))
+                    parts = split_multi_value_field(val)
+                    split_fields[f] = parts
+                    max_parts = max(max_parts, len(parts))
                 
                 if max_parts > 1:
                     for i in range(max_parts):
                         sub_user = user.copy()
+                        sub_user['_is_split_user'] = True
                         for f in USER_MASTER_COLS:
                             if f in identity_fields:
-                                val = user.get(f, '')
-                                parts = [p.strip() for p in val.split('|')] if '|' in val else [val]
+                                parts = split_fields[f]
                                 if i < len(parts):
                                     sub_user[f] = parts[i]
                                 else:
@@ -300,9 +345,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                             all_users.append(sub_user)
                 else:
                     for f in ['email', 'phone']:
-                        val = user.get(f, '')
-                        if '|' in val:
-                            user[f] = val.split('|')[0].strip()
+                        parts = split_fields.get(f, [])
+                        if parts:
+                            user[f] = parts[0]
+                    user['_is_split_user'] = False
                     has_name = (user.get('firstName', '').strip() or 
                                user.get('lastName', '').strip() or 
                                user.get('employeeId', '').strip() or
@@ -311,6 +357,7 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
                         all_users.append(user)
             else:
                 user = resolve_multi_value_fields(user)
+                user['_is_split_user'] = False
                 has_name = (user.get('firstName', '').strip() or 
                            user.get('lastName', '').strip() or 
                            user.get('employeeId', '').strip() or
@@ -320,7 +367,10 @@ def local_extract_users(file_bytes, filename, pass_prefix="Med", user_intent="")
     
     if not all_users:
         return pd.DataFrame()
-    
+        
+    # --- SMART ALIGNMENT POST-PROCESSING STEP ---
+    all_users = align_extracted_users_by_registry(all_users)
+
     raw_df = pd.DataFrame(all_users)
     result_df = _merge_duplicate_users(raw_df, pass_prefix=pass_prefix)
     return enforce_contract(result_df)
