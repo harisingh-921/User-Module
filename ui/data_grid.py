@@ -21,8 +21,8 @@ _LARGE_DATASET_ROWS = 500   # Row threshold to enable AgGrid large-dataset mode
 
 _CELL_CLICK_MODAL_JS = JsCode("""
 function(params) {
-    // Only trigger for data columns (not '#')
-    if (params.column.getId() === '#') {
+    // Only trigger for editable data columns (not '#' or hidden ones)
+    if (params.column.getId() === '#' || !params.column.isCellEditable(params.node)) {
         return;
     }
     
@@ -259,7 +259,7 @@ def _build_grid_options(df: pd.DataFrame, user_cols: list, visible_cols: list):
     """Create and return AgGrid GridOptionsBuilder."""
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(
-        editable=False, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
+        editable=True, filter='agTextColumnFilter', resizable=True, sortable=True, width=200, minWidth=150
     )
     # '#' always pinned left
     gb.configure_column("#", headerName="#", width=140, minWidth=120, maxWidth=180, pinned='left', editable=False,
