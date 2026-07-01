@@ -98,16 +98,28 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
     df['_group_key'] = df.apply(get_master_key, axis=1)
 
     def merge_group(group):
-        # Prefer the row with an Employee ID first, then by cleanest (shortest) firstName.
-        # This guarantees that the row with the ID acts as the primary name/username source!
+        # Prefer the row with an Employee ID first, then prioritize real names over role keywords, and then keep the longer first name.
         if len(group) > 1:
             group = group.copy()
             # 0 for rows with a valid ID (floats to top), 1 for blank IDs
             group['_has_emp'] = group['employeeId'].apply(
                 lambda x: 0 if has_value(x) else 1
             )
+            
+            # Penalize role titles/placeholder names
+            role_kws = ['quality', 'manager', 'admin', 'supervisor', 'reporter', 'analyst', 'user', 'incharge', 'officer', 'coordinator']
+            def get_role_penalty(name):
+                name_lower = str(name).lower()
+                return 1 if any(kw in name_lower for kw in role_kws) else 0
+                
+            group['_role_penalty'] = group['firstName'].apply(get_role_penalty)
             group['_fn_len'] = group['firstName'].astype(str).str.replace('|', '', regex=False).str.strip().str.len()
-            group = group.sort_values(by=['_has_emp', '_fn_len'], ascending=[True, False]).drop(columns=['_has_emp', '_fn_len'])
+            
+            # Sort by _has_emp (ascending), _role_penalty (ascending), and _fn_len (descending for fuller name)
+            group = group.sort_values(
+                by=['_has_emp', '_role_penalty', '_fn_len'], 
+                ascending=[True, True, False]
+            ).drop(columns=['_has_emp', '_role_penalty', '_fn_len'])
         merged = group.iloc[0].copy()
         # Keep the earliest original order!
         if '_original_order' in group.columns:
@@ -162,14 +174,12 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         if '|' in mn: mn = mn.split('|')[0].strip()
         if '|' in ln: ln = ln.split('|')[0].strip()
 
-        # Safety 2: Anti-Merge (If AI returned "Priyodarshini Manisha" without a pipe)
+        # Safety 2: Anti-Merge (Strip titles if present, but do not truncate multi-word first names)
         if ' ' in fn:
             words = fn.split()
             if words and words[0].lower().rstrip('.') in ('dr', 'mr', 'mrs', 'ms', 'sr', 'prof', 'sister', 'fr'):
                 if len(words) >= 2:
                     fn = words[0] + " " + words[1]
-            else:
-                fn = fn.split(' ')[0].strip()
 
         for val in [fn, mn, ln]:
             if has_value(val):

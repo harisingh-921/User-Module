@@ -36,7 +36,7 @@ from extraction.merge import _merge_duplicate_users
 from extraction.utils import (
     get_all_api_keys, find_matching_excel_roles, filter_sheets_by_intent,
     detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns,
-    build_temp_col_mapping
+    build_temp_col_mapping, align_extracted_users_by_registry
 )
 from utils.common import is_empty_value, has_value
 
@@ -67,14 +67,15 @@ Identify fields by MEANING, not by position or exact column header name:
 
 === STEP 3: EXTRACTION RULES ===
 1. ROW INTEGRITY (MANDATORY): You MUST extract EVERY person in the data. Do not skip anyone. Do not summarize.
-2. MULTI-USER SPLIT RULE (MANDATORY): A single row may contain data for MULTIPLE people, separated by a CONSISTENT DELIMITER. The delimiter can be ANY of: "|", ",", ";", "/", " & ", " and " — whichever is used consistently across that row.
-   DETECTION: If the SAME delimiter appears in MULTIPLE columns of the same row (e.g. firstName has "Bijay | Maumita" AND employeeId has "1035708 | 192004"), that row contains multiple users. You MUST create SEPARATE JSON objects for each person.
+2. MULTI-USER SPLIT RULE (MANDATORY): A single row may contain data for MULTIPLE people, separated by a CONSISTENT DELIMITER. The delimiter can be ANY of: "\n" (newline), "|", ",", ";", "/", " & ", " and " — whichever is used consistently across that row.
+   Note: Cells might also format the list with numbering/bullets (e.g., "1. Vidhya\n2. Nisha"). You MUST extract "Vidhya" and "Nisha" as separate users and strip out the bullet/numbered prefix (like "1. ", "2. ") completely from all fields.
+   DETECTION: If the SAME delimiter (including newline) appears in MULTIPLE columns of the same row (e.g. firstName has "1. Vidhya\n2. Nisha" AND employeeId has "1. 115888\n2. 215555"), that row contains multiple users. You MUST create SEPARATE JSON objects for each person.
    SPLITTING RULES:
-   - Identify the delimiter being used (e.g. "|" or "," or "&").
+   - Identify the delimiter being used (e.g. newline, "|", ",", or "&").
    - User 1 takes the 1st part of EVERY delimited column.
    - User 2 takes the 2nd part of EVERY delimited column.
-   - For columns with NO delimiter (e.g. middleName "Krishna" when others use "|"), apply the value ONLY to User 1. Leave it BLANK for User 2.
-   - NEVER include the delimiter symbol in your final JSON fields — strip it out completely.
+   - For columns with NO delimiter (e.g. middleName "Krishna" when others use newline or "|"), apply the value ONLY to User 1. Leave it BLANK for User 2.
+   - NEVER include the delimiter symbol or numbering/bullet prefixes in your final JSON fields — strip them out completely.
    - WORKED EXAMPLE with "|" delimiter (follow exactly):
        Source row: firstName="Bijay | Maumita", middleName="Krishna", lastName="Maity | Saha", employeeId="1035708 | 192004"
        firstName has "|" → 2 users. lastName has "|" → 2 users. employeeId has "|" → 2 users. middleName has NO "|" → belongs to User 1 only.
@@ -98,17 +99,22 @@ Identify fields by MEANING, not by position or exact column header name:
          User 3: firstName="Anasuya",     lastName="Bajpaye"
        WRONG output (never do this):
          User 1: firstName="Priyadarshini Manisha", lastName="Roy"  ← Merging names is FORBIDDEN.
-   - WORKED EXAMPLE with "," delimiter:
-       Source row: firstName="Anjali, Priya", lastName="Sen, Sharma", employeeId="101, 102"
-       Correct output:
-         User 1: firstName="Anjali", lastName="Sen",    employeeId="101"
-         User 2: firstName="Priya",  lastName="Sharma", employeeId="102"
+    - WORKED EXAMPLE with "," delimiter:
+        Source row: firstName="Anjali, Priya", lastName="Sen, Sharma", employeeId="101, 102"
+        Correct output:
+          User 1: firstName="Anjali", lastName="Sen",    employeeId="101"
+          User 2: firstName="Priya",  lastName="Sharma", employeeId="102"
+    - WORKED EXAMPLE with newline and numbering split (follow exactly):
+        Source row: firstName="1. Vidhya\n2. Nisha", lastName="1. Siji\n2. Nisha", employeeId="1. 115888\n2. 215555"
+        Correct output:
+          User 1: firstName="Vidhya", lastName="Siji",  employeeId="115888"
+          User 2: firstName="Nisha",  lastName="Nisha", employeeId="215555"
  3. FIELD MAPPING:
     - firstName, middleName, lastName: Extract logically from the source data.
     - STRICT COLUMN ALIGNMENT (CRITICAL): Do NOT shift data across columns. If the "Middle Name" column in Excel is blank for a specific user, the "middleName" field in JSON MUST be blank. NEVER move the second person's first name (from a pipe-split) into the first person's middleName field.
     - If the document has a "Full Name" column, split it logically into firstName and lastName.
     - employeeId: Extract the unique ID.
-    - roles: This is CRITICAL. In this Excel format, the roles are often found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI') or are provided in the [ROLE SECTION:] tag at the start of the row. Combine all applicable roles found in Column A and [ROLE SECTION:] into this field, separated by "|".
+    - roles: This is CRITICAL. In this Excel format, the roles are often found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI'), or provided in the [ROLE SECTION:] tag at the start of the row, or the sheet name itself in the [SHEET: SheetName] tag represents a role (e.g., 'Incident Reporter', 'Incident Analyst', 'Incident Admin'). Combine all applicable roles found in Column A, [ROLE SECTION:], and [SHEET: SheetName] (if the sheet name is a role) into this field, separated by "|". Users appearing across different sheets/roles should have their roles merged and separated by "|".
     - departments / units / designation / email / phone: Map correctly based on column headers.
 4. UNIT NAME (STRICT RULE): Do NOT guess, assume, or infer the unit name from email addresses, department names, or any other fields. The `units` field must remain completely empty unless the Excel sheet has an explicit column for the unit name and the cells under it explicitly contain the unit name value.
 5. NO LOGIC: Do not try to generate usernames or complex passwords. Just extract the raw name parts. Python will handle the rest.
@@ -532,6 +538,9 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             for i in sorted(ordered_results.keys()):
                 all_users.extend(ordered_results[i])
             
+            # Smart alignment post-processing
+            all_users = align_extracted_users_by_registry(all_users)
+            
             status_text.empty()
             progress_bar.empty()
             
@@ -659,6 +668,16 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
         st.error(f"AI Extraction Error: {str(e)[:200]}")
         return None
 
+def find_matching_column(col_name, columns):
+    """Find a column name in columns list ignoring case and leading/trailing whitespace."""
+    if not col_name:
+        return None
+    cleaned_col = str(col_name).strip().lower()
+    for col in columns:
+        if str(col).strip().lower() == cleaned_col:
+            return col
+    return None
+
 def apply_ai_smart_context(df, command, api_key, context_df=None):
     """
     Applies natural language commands to the user dataframe using AI.
@@ -735,11 +754,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Mapping Mode
             if res_data.mapping_intent is not None and context_df is not None:
                 intent = res_data.mapping_intent
-                target_col = intent.target_col
-                lookup_col = intent.lookup_col
-                value_col = intent.value_col
+                target_col = find_matching_column(intent.target_col, df.columns)
+                lookup_col = find_matching_column(intent.lookup_col, context_df.columns)
+                value_col = find_matching_column(intent.value_col, context_df.columns)
                 
-                if target_col in df.columns and lookup_col in context_df.columns and value_col in context_df.columns:
+                if target_col and lookup_col and value_col:
                     # Create case-insensitive lookup dict
                     lookup_dict = {str(k).strip().lower(): v for k, v in zip(context_df[lookup_col], context_df[value_col]) if pd.notna(k)}
                     
@@ -764,11 +783,11 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Replace Mode
             if res_data.replace_intent is not None:
                 intent = res_data.replace_intent
-                target_col = intent.target_col
+                target_col = find_matching_column(intent.target_col, df.columns)
                 search_text = intent.search_text
                 replace_text = intent.replace_text
                 
-                if target_col in df.columns and search_text:
+                if target_col and search_text:
                     new_df = df.copy()
                     escaped_search = re.escape(search_text)
                     
@@ -788,14 +807,14 @@ def apply_ai_smart_context(df, command, api_key, context_df=None):
             # Programmatic Set-Value Mode
             if res_data.set_value_intent is not None:
                 intent = res_data.set_value_intent
-                target_col = intent.target_col
+                target_col = find_matching_column(intent.target_col, df.columns)
                 new_value = intent.value
-                filter_col = intent.filter_col
+                filter_col = find_matching_column(intent.filter_col, df.columns) if intent.filter_col else None
                 filter_value = intent.filter_value
 
-                if target_col and target_col in AI_ALLOWED_EDIT_COLS and target_col in df.columns:
+                if target_col and target_col in AI_ALLOWED_EDIT_COLS:
                     new_df = df.copy()
-                    if filter_col and filter_value is not None and filter_col in df.columns:
+                    if filter_col and filter_value is not None:
                         # Filtered set: only rows where filter_col matches filter_value (case-insensitive)
                         mask = new_df[filter_col].astype(str).str.strip().str.lower() == str(filter_value).strip().lower()
                         affected = int(mask.sum())

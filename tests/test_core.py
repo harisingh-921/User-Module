@@ -886,3 +886,199 @@ def test_segregation_username_fallback_from_employee_name():
     assert user["lastName"] == ""
 
 
+def test_split_multi_value_field_pipe():
+    """Verify split_multi_value_field splits on pipe and cleans whitespace."""
+    from extraction.local import split_multi_value_field
+    res = split_multi_value_field("Vidhya | Nisha")
+    assert res == ["Vidhya", "Nisha"]
+
+
+def test_split_multi_value_field_newline():
+    """Verify split_multi_value_field splits on newline and cleans whitespace."""
+    from extraction.local import split_multi_value_field
+    res = split_multi_value_field("Vidhya\nNisha")
+    assert res == ["Vidhya", "Nisha"]
+    
+    # Carriage return
+    res = split_multi_value_field("Vidhya\r\nNisha")
+    assert res == ["Vidhya", "Nisha"]
+
+
+def test_split_multi_value_field_numbered_list():
+    """Verify split_multi_value_field cleans numbered prefixes and splits correctly."""
+    from extraction.local import split_multi_value_field
+    res = split_multi_value_field("1. Vidhya\n2. Nisha")
+    assert res == ["Vidhya", "Nisha"]
+    
+    # Carriage returns + space
+    res = split_multi_value_field("1.  Vidhya\r\n 2.  Nisha ")
+    assert res == ["Vidhya", "Nisha"]
+
+
+def test_local_extraction_newline_splitting():
+    """Verify programmatic local extraction correctly splits newlines and cleans numbers."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    # Create a mock Excel spreadsheet in memory with the structure from the issue
+    data = {
+        "firstName": ["1. Vidhya\n2. Nisha"],
+        "lastName": ["1. Siji\n2. Nisha"],
+        "employee": ["1. 115888\n2. 215555"],
+        "department": ["Nursing"],
+        "email": ["nisha10@FORTISHEALTHCARE.COM"]
+    }
+    df = pd.DataFrame(data)
+    
+    # Save to Excel bytes
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Sheet1")
+    excel_bytes = output.getvalue()
+    
+    res_df = local_extract_users(excel_bytes, "test.xlsx")
+    
+    # Should split into two users
+    assert len(res_df) == 2
+    
+    user1 = res_df.iloc[0]
+    assert user1["firstName"] == "Vidhya"
+    assert user1["lastName"] == "Siji"
+    assert user1["employeeId"] == "115888"
+    assert user1["userName"] == "vidhyasiji"
+    assert user1["password"] == "Med@115888"
+    
+    user2 = res_df.iloc[1]
+    assert user2["firstName"] == "Nisha"
+    assert user2["lastName"] == "Nisha"
+    assert user2["employeeId"] == "215555"
+    assert user2["userName"] == "nishanisha"
+    assert user2["password"] == "Med@215555"
+
+
+def test_local_extraction_sheet_name_roles():
+    """Verify local extraction sets sheet name as role and merges them across sheets."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    # Create an Excel file with two sheets having role names
+    # User John Doe is in both sheets, so his roles should merge
+    data1 = {
+        "firstName": ["John"],
+        "lastName": ["Doe"],
+        "employee": ["12345"]
+    }
+    data2 = {
+        "firstName": ["John"],
+        "lastName": ["Doe"],
+        "employee": ["12345"]
+    }
+    
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        pd.DataFrame(data1).to_excel(writer, index=False, sheet_name="Incident Reporter")
+        pd.DataFrame(data2).to_excel(writer, index=False, sheet_name="Incident Analyst")
+    excel_bytes = output.getvalue()
+    
+    res_df = local_extract_users(excel_bytes, "test.xlsx")
+    
+    # Since they are the same user (same employeeId), they should be merged into a single user row
+    assert len(res_df) == 1
+    user = res_df.iloc[0]
+    assert user["firstName"] == "John"
+    assert user["lastName"] == "Doe"
+    assert user["employeeId"] == "12345"
+    
+    # Roles from both sheets must be merged case-insensitively using |
+    roles = user["roles"].split("|")
+    assert "Incident Reporter" in roles
+    assert "Incident Analyst" in roles
+
+
+def test_merge_duplicate_users_name_prioritization():
+    """Verify that _merge_duplicate_users prefers real names over role keywords, and longer names over shorter names."""
+    from extraction.merge import _merge_duplicate_users
+    data = [
+        {"employeeId": "112176", "firstName": "Quality Manager", "lastName": "Manager", "roles": "Incident Analyst"},
+        {"employeeId": "112176", "firstName": "Divya", "lastName": "Gautam", "roles": "Incident Reporter"},
+        {"employeeId": "218604", "firstName": "Raj", "lastName": "Beniwal", "roles": "Incident Analyst"},
+        {"employeeId": "218604", "firstName": "Raj Kumar", "lastName": "Beniwal", "roles": "Incident Reporter"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df, pass_prefix="Med")
+    
+    assert len(merged_df) == 2
+    
+    divya = merged_df[merged_df["employeeId"] == "112176"].iloc[0]
+    assert divya["firstName"] == "Divya"
+    assert divya["lastName"] == "Gautam"
+    assert divya["userName"] == "divyagautam"
+    
+    raj = merged_df[merged_df["employeeId"] == "218604"].iloc[0]
+    assert raj["firstName"] == "Raj Kumar"
+    assert raj["lastName"] == "Beniwal"
+    assert raj["userName"] == "rajkumarbeniwal"
+
+
+def test_local_extraction_smart_alignment():
+    """Verify local extraction corrects shifted fields inside multi-user rows using reference registry."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    # Row 1 is a clean single-user row containing correct details for Divya Gautam
+    # Row 2 is a shifted multi-user row where the first email is missing, causing emails to shift
+    data = {
+        "firstName": ["Divya", "Chhaya\nNeelam\nRashmi\nDivya\nRohit"],
+        "lastName": ["Gautam", "Singh\nDeshwal\nBisht\nGautam\nSingh"],
+        "employee": ["112176", "126164\n111561\n199881\n112176\n1034610"],
+        "email": [
+            "divya.gautam@fortishealthcare.com",
+            "neelam.deshwal@fortishealthcare.com,\nrashmi.bisht@fortishealthcare.com,\ndivya.gautam@fortishealthcare.com,\nrohit.kumar14@fortishealthcare.com"
+        ]
+    }
+    df = pd.DataFrame(data)
+    
+    # Save to Excel bytes
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Sheet1")
+    excel_bytes = output.getvalue()
+    
+    res_df = local_extract_users(excel_bytes, "test.xlsx")
+    
+    # Let's verify Divya Gautam was correctly aligned and NOT overwritten by Rohit's shifted email
+    divya_rows = res_df[res_df["firstName"] == "Divya"]
+    assert len(divya_rows) == 1
+    divya = divya_rows.iloc[0]
+    assert divya["lastName"] == "Gautam"
+    assert divya["employeeId"] == "112176"
+    assert divya["email"] == "divya.gautam@fortishealthcare.com"
+    assert divya["userName"] == "divyagautam"
+
+
+def test_merge_duplicate_users_multi_word_first_name():
+    """Verify that _merge_duplicate_users does not truncate multi-word first names like 'Raj Kumar'."""
+    from extraction.merge import _merge_duplicate_users
+    data = [
+        {"employeeId": "218604", "firstName": "Raj Kumar", "lastName": "Beniwal", "roles": "Incident Analyst"}
+    ]
+    df = pd.DataFrame(data)
+    merged_df = _merge_duplicate_users(df, pass_prefix="Med")
+    
+    assert len(merged_df) == 1
+    user = merged_df.iloc[0]
+    assert user["firstName"] == "Raj Kumar"
+    assert user["lastName"] == "Beniwal"
+    assert user["userName"] == "rajkumarbeniwal"
+
+
+def test_split_multi_value_field_preserves_empty_lines():
+    """Verify that split_multi_value_field does not strip leading newlines, preserving blank cells."""
+    from extraction.local import split_multi_value_field
+    res = split_multi_value_field("\nChand")
+    assert res == ["", "Chand"]
+
+
