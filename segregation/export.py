@@ -198,6 +198,8 @@ def format_segregation_results(client_df: pd.DataFrame, priority_mappings: list 
             def fill_new_password(row):
                 pwd = str(row.get('password', '')).strip()
                 if pd.isna(row.get('password')) or pwd.lower() in ('', 'nan', 'none', '-', 'na', 'n/a'):
+                    if not pass_prefix or not str(pass_prefix).strip():
+                        return ''
                     emp_id = str(row.get('employeeId', '')).strip()
                     if emp_id and emp_id.lower() not in ('', 'nan', 'none', '-', 'na', 'n/a'):
                         return f"{pass_prefix}@{emp_id}"

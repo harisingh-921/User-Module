@@ -1,0 +1,3 @@
+Headers: ['Incident Admin', 'Suggested User', 'firstName', 'middleName', 'lastName', 'employeeId', 'departments', 'email', 'mobile', 'thirdPartyUsername (Name as in email ID)']
+Custom rules: {'suggested user': 'designation'}
+Group Mappings: {0: {'Suggested User': 'designation', 'departments': 'departments', 'email': 'email', 'mobile': 'phone', 'employeeId': 'employeeId', 'firstName': 'firstName', 'middleName': 'middleName', 'lastName': 'lastName', 'thirdPartyUsername (Name as in email ID)': 'thirdPartyUsername'}}
