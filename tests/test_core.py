@@ -1082,3 +1082,252 @@ def test_split_multi_value_field_preserves_empty_lines():
     assert res == ["", "Chand"]
 
 
+def test_local_extraction_side_by_side():
+    """Verify that local extraction handles Excel sheets with side-by-side user columns."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    # Dual user side-by-side columns:
+    # columns F-M (firstName, lastName, employeeId, email, phone)
+    # columns N-U (firstName_1, lastName_1, employeeId_1, email_1, phone_1)
+    data = {
+        "Sub-Category": ["Radiology"],
+        "firstName": ["Suruchi"],
+        "lastName": ["Chopra"],
+        "employeeId": ["107299"],
+        "email": ["suruchi.chopra@fortishealthcare.com"],
+        "mobile": ["9856000000"],
+        "firstName_1": ["Anshul"],
+        "lastName_1": ["Ghai"],
+        "employeeId_1": ["963398"],
+        "email_1": ["anshul.ghai@fortishealthcare.com"],
+        "mobile_1": ["9883000000"]
+    }
+    df = pd.DataFrame(data)
+    
+    # Save to Excel bytes
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Incident Analyst")
+    excel_bytes = output.getvalue()
+    
+    res_df = local_extract_users(excel_bytes, "test_side_by_side.xlsx")
+    
+    # We should have exactly 2 users extracted
+    assert len(res_df) == 2
+    
+    suruchi = res_df[res_df["firstName"] == "Suruchi"].iloc[0]
+    assert suruchi["lastName"] == "Chopra"
+    assert suruchi["employeeId"] == "107299"
+    assert suruchi["email"] == "suruchi.chopra@fortishealthcare.com"
+    assert suruchi["userName"] == "suruchichopra"
+    
+    anshul = res_df[res_df["firstName"] == "Anshul"].iloc[0]
+    assert anshul["lastName"] == "Ghai"
+    assert anshul["employeeId"] == "963398"
+    assert anshul["email"] == "anshul.ghai@fortishealthcare.com"
+    assert anshul["userName"] == "anshulghai"
+
+
+def test_local_extraction_comma_split():
+    """Verify that local extraction splits multiple users in a single row separated by commas."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    data = {
+        "firstName": ["Ruchika, Hast"],
+        "lastName": ["kushte"],
+        "employeeId": ["961219,964357"],
+        "email": ["ruchika@fortishealthcare.com, hasta.kushte@fortishealthcare.com"],
+        "mobile": ["7837555108, 8968555422"]
+    }
+    df = pd.DataFrame(data)
+    
+    # Save to Excel bytes
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Incident Analyst")
+    excel_bytes = output.getvalue()
+    
+    res_df = local_extract_users(excel_bytes, "test_comma_split.xlsx")
+    
+    # We should have exactly 2 users extracted from the single row
+    assert len(res_df) == 2
+    
+    ruchika = res_df[res_df["firstName"] == "Ruchika"].iloc[0]
+    assert ruchika["lastName"] == "kushte"
+    assert ruchika["employeeId"] == "961219"
+    assert ruchika["email"] == "ruchika@fortishealthcare.com"
+    assert ruchika["userName"] == "ruchikakushte"
+    
+    hasta = res_df[res_df["firstName"] == "Hast"].iloc[0]
+    assert hasta["lastName"] == ""
+    assert hasta["employeeId"] == "964357"
+    assert hasta["email"] == "hasta.kushte@fortishealthcare.com"
+    assert hasta["userName"] == "hast"
+
+
+def test_filter_hidden_elements():
+    """Verify that filter_hidden_elements correctly drops hidden rows and columns from excel sheets."""
+    from extraction.utils import filter_hidden_elements
+    import io
+    import pandas as pd
+    import openpyxl
+    
+    # We will write a workbook with openpyxl and hide column B and row 2
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    
+    # Row 1 (Header)
+    ws.append(["firstName", "email", "lastName"])
+    # Row 2 (Hidden row)
+    ws.append(["Hidden", "hidden@example.com", "User"])
+    # Row 3 (Visible row)
+    ws.append(["Visible", "visible@example.com", "User"])
+    
+    # Hide Column B (email) and Row 2
+    ws.column_dimensions["B"].hidden = True
+    ws.row_dimensions[2].hidden = True
+    
+    # Save workbook to bytes
+    out = io.BytesIO()
+    wb.save(out)
+    excel_bytes = out.getvalue()
+    
+    # Load sheet using pandas first (which reads everything by default)
+    raw_dfs = {"Sheet1": pd.read_excel(io.BytesIO(excel_bytes), header=None)}
+    
+    # Verify that raw pandas reads all cells
+    assert raw_dfs["Sheet1"].shape == (3, 3)
+    
+    # Filter out hidden rows and columns
+    filtered_dfs = filter_hidden_elements(excel_bytes, raw_dfs)
+    filtered_df = filtered_dfs["Sheet1"]
+    
+    # Column B (index 1) and Row 2 (index 1) should be gone
+    # So size should be 2x2:
+    # Row 0: ['firstName', 'lastName']
+    # Row 1: ['Visible', 'User']
+    assert filtered_df.shape == (2, 2)
+    
+    # Check data content
+    assert filtered_df.iloc[0, 0] == "firstName"
+    assert filtered_df.iloc[0, 1] == "lastName"
+    assert filtered_df.iloc[1, 0] == "Visible"
+    assert filtered_df.iloc[1, 1] == "User"
+
+
+def test_custom_column_mapping_local():
+    """Verify that local extraction parses and applies custom column mapping rules like 'Suggested User = designation'."""
+    from extraction.local import local_extract_users
+    import io
+    import pandas as pd
+    
+    data = {
+        "firstName": ["Suruchi"],
+        "lastName": ["Chopra"],
+        "employeeId": ["107299"],
+        "suggested Use": ["Supervisor & Coordinator"]
+    }
+    df = pd.DataFrame(data)
+    
+    # Save to Excel bytes
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name="Sheet1")
+    excel_bytes = output.getvalue()
+    
+    # Test with custom rule
+    res_df = local_extract_users(excel_bytes, "test_custom_rules.xlsx", user_intent="Suggested User = designation")
+    
+    # Verify mapping works and 'suggested Use' mapped to 'designation'
+    assert len(res_df) == 1
+    user = res_df.iloc[0]
+    assert user["firstName"] == "Suruchi"
+    assert user["lastName"] == "Chopra"
+    assert user["employeeId"] == "107299"
+    assert user["designation"] == "Supervisor & Coordinator"
+
+
+def test_check_intent_is_local_only():
+    """Verify that check_intent_is_local_only correctly routes local mapping/filtering rules to Local Mode."""
+    from extraction.utils import check_intent_is_local_only
+    
+    # Simple mapping
+    assert check_intent_is_local_only("Suggested User = designation") is True
+    # Semicolon separated mapping + sheet filters
+    assert check_intent_is_local_only("Suggested User = designation; ignore sheet 2; only sheet 1") is True
+    # Free-text rule requiring AI semantic filters
+    assert check_intent_is_local_only("only extract clinical staff") is False
+    # Mix of mappings and semantic rules
+    assert check_intent_is_local_only("Suggested User = designation; only extract users with active status") is False
+
+
+def test_empty_password_prefix():
+    """Verify that when pass_prefix is empty, no default passwords are generated."""
+    from extraction.merge import _merge_duplicate_users
+    import pandas as pd
+    
+    # Test merge_duplicate_users with empty pass_prefix
+    df = pd.DataFrame([{
+        "firstName": "John",
+        "lastName": "Doe",
+        "employeeId": "9999",
+        "password": ""
+    }])
+    
+    res = _merge_duplicate_users(df, pass_prefix="")
+    assert res.iloc[0]["password"] == ""
+    
+    # Compare with non-empty pass_prefix
+    res_with_prefix = _merge_duplicate_users(df, pass_prefix="Med")
+    assert res_with_prefix.iloc[0]["password"] == "Med@9999"
+
+
+def test_duplicate_emp_id_different_names():
+    """Verify that duplicate employeeId shared by completely different names resolves correctly by preserving both users."""
+    from extraction.merge import _merge_duplicate_users
+    import pandas as pd
+    
+    df = pd.DataFrame([
+        {
+            "firstName": "Nursing",
+            "lastName": "Supervisor",
+            "employeeId": "111561",
+            "email": "ngsupervisor@example.com",
+            "userName": "ngsupervisor"
+        },
+        {
+            "firstName": "Neelam",
+            "lastName": "Deshwal",
+            "employeeId": "111561",
+            "email": "neelam.deshwal@example.com",
+            "userName": "neelamdeshwal"
+        }
+    ])
+    
+    res = _merge_duplicate_users(df, pass_prefix="")
+    
+    # Both should be present
+    assert len(res) == 2
+    
+    # Find Neelam and Nursing Supervisor
+    neelam = res[res["firstName"] == "Neelam"].iloc[0]
+    nursing = res[res["firstName"] == "Nursing"].iloc[0]
+    
+    # Neelam keeps the employeeId
+    assert neelam["employeeId"] == "111561"
+    
+    # Nursing Supervisor loses the employeeId to prevent collision/overwriting
+    assert nursing["employeeId"] == ""
+
+
+
+
+
+
+
+

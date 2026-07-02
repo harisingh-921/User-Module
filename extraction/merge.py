@@ -67,6 +67,60 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
 
     df = df[~df.apply(_is_phantom_row, axis=1)].reset_index(drop=True)
 
+    # ── Resolve duplicate employee ID conflicts with different names ─────────
+    # If the same employeeId is shared by two rows with completely different names,
+    # we strip it from the one that looks like a generic role/system title.
+    if 'employeeId' in df.columns:
+        emp_groups = {}
+        for idx, row in df.iterrows():
+            eid = str(row.get('employeeId', '')).strip().lower()
+            if has_value(eid) and eid not in ('nan', 'none', '-', 'na', 'n/a'):
+                if eid not in emp_groups:
+                    emp_groups[eid] = []
+                emp_groups[eid].append(idx)
+                
+        for eid, indices in emp_groups.items():
+            if len(indices) > 1:
+                names_and_indices = []
+                for idx in indices:
+                    row = df.loc[idx]
+                    first = str(row.get('firstName', '')).strip()
+                    last = str(row.get('lastName', '')).strip()
+                    full_name = f"{first} {last}".strip()
+                    names_and_indices.append((idx, full_name))
+                
+                # Check if we have different names
+                has_diff = False
+                for i in range(len(names_and_indices)):
+                    for j in range(i + 1, len(names_and_indices)):
+                        n1 = names_and_indices[i][1].lower()
+                        n2 = names_and_indices[j][1].lower()
+                        if n1 and n2:
+                            ratio = difflib.SequenceMatcher(None, n1, n2).ratio()
+                            if ratio < 0.7 and n1 not in n2 and n2 not in n1:
+                                has_diff = True
+                                break
+                    if has_diff:
+                        break
+                        
+                if has_diff:
+                    role_kws = ['quality', 'manager', 'admin', 'supervisor', 'reporter', 'analyst', 'user', 'incharge', 'officer', 'coordinator']
+                    def get_role_score(name):
+                        nl = name.lower()
+                        return sum(1 for kw in role_kws if kw in nl)
+                        
+                    # Find the winning name (lowest role score)
+                    winning_idx, winning_name = min(names_and_indices, key=lambda x: get_role_score(x[1]))
+                    winning_name_lower = winning_name.lower().strip()
+                    
+                    # Strip employeeId from any row whose name is not similar to the winning name
+                    for idx, full_name in names_and_indices:
+                        fn_lower = full_name.lower().strip()
+                        if fn_lower != winning_name_lower:
+                            ratio = difflib.SequenceMatcher(None, fn_lower, winning_name_lower).ratio()
+                            if ratio < 0.7 and fn_lower not in winning_name_lower and winning_name_lower not in fn_lower:
+                                df.at[idx, 'employeeId'] = ''
+
     # Determine the key to group by
     def get_master_key(row):
         eid = str(row.get('employeeId', '')).strip().lower()
@@ -196,6 +250,8 @@ def _merge_duplicate_users(df: pd.DataFrame, pass_prefix: str = "Med") -> pd.Dat
         if has_value(pwd) and pwd.lower() not in ('nan', 'none', '-', 'na', 'n/a'):
             return pwd
 
+        if not pass_prefix or not str(pass_prefix).strip():
+            return ""
         emp_id = str(row.get('employeeId', '')).strip()
         if is_empty_value(emp_id) or emp_id.lower() in ('nan', 'none', '-', 'na', 'n/a'):
             return "" # Keep password blank if employeeId is missing

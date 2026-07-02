@@ -36,7 +36,7 @@ from extraction.merge import _merge_duplicate_users
 from extraction.utils import (
     get_all_api_keys, find_matching_excel_roles, filter_sheets_by_intent,
     detect_header_row, check_is_sub_header, build_unique_headers, detect_tick_role_columns,
-    build_temp_col_mapping, align_extracted_users_by_registry
+    build_temp_col_mapping, align_extracted_users_by_registry, filter_hidden_elements
 )
 from utils.common import is_empty_value, has_value
 
@@ -114,13 +114,18 @@ Identify fields by MEANING, not by position or exact column header name:
     - STRICT COLUMN ALIGNMENT (CRITICAL): Do NOT shift data across columns. If the "Middle Name" column in Excel is blank for a specific user, the "middleName" field in JSON MUST be blank. NEVER move the second person's first name (from a pipe-split) into the first person's middleName field.
     - If the document has a "Full Name" column, split it logically into firstName and lastName.
     - employeeId: Extract the unique ID.
-    - roles: This is CRITICAL. In this Excel format, the roles are often found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI'), or provided in the [ROLE SECTION:] tag at the start of the row, or the sheet name itself in the [SHEET: SheetName] tag represents a role (e.g., 'Incident Reporter', 'Incident Analyst', 'Incident Admin'). Combine all applicable roles found in Column A, [ROLE SECTION:], and [SHEET: SheetName] (if the sheet name is a role) into this field, separated by "|". Users appearing across different sheets/roles should have their roles merged and separated by "|".
+    - roles: This is CRITICAL.
+      - If the sheet contains a dedicated column for roles (e.g. header named 'roles' or 'role'), extract the roles directly from the cell values of that column (they are often pipe-separated, e.g. "Incident Reporter|Incident Analyst").
+      - Otherwise, if there is no explicit roles column, check if the roles are found in Column A as "floating headers" (e.g. 'Audit User - CESC - CAUTI'), or provided in the [ROLE SECTION:] tag at the start of the row, or if the sheet name itself in the [SHEET: SheetName] tag represents a role (e.g., 'Incident Reporter', 'Incident Analyst', 'Incident Admin'). Combine all such applicable roles into this field, separated by "|".
+      - DO NOT invent, guess, or add dummy roles from the USER INTENT or other instructions.
     - departments / units / designation / email / phone: Map correctly based on column headers.
 4. UNIT NAME (STRICT RULE): Do NOT guess, assume, or infer the unit name from email addresses, department names, or any other fields. The `units` field must remain completely empty unless the Excel sheet has an explicit column for the unit name and the cells under it explicitly contain the unit name value.
 5. NO LOGIC: Do not try to generate usernames or complex passwords. Just extract the raw name parts. Python will handle the rest.
 6. NA LOGIC: If a value is "-", leave it blank.
 7. ROLE SECTION TAGS (CRITICAL): Lines tagged with [ROLE SECTION: ...] are SECTION HEADERS, NOT people. NEVER create a user record from a [ROLE SECTION:] tag. Only use them to determine the `roles` value for the real data rows that follow. If a row has no name, no email, and no employee ID, SKIP it entirely. Always extract rows that contain an email address or active cells, even if they have a non-standard name (like "MMC Rehab") or lack an employee ID.
 8. MIDDLE NAME RULE (CRITICAL): The `middleName` field is ONLY for a person's own middle name or initial (e.g. "K", "Kumar", "Rani"). It must NEVER contain another person's first name from a pipe-split. If firstName is "Arindam | Riya", you must create TWO separate users: User 1 has firstName="Arindam" and middleName="" (blank). User 2 has firstName="Riya" and middleName="" (blank). The text after the "|" is a second person, not a middle name.
+9. MULTI-COLUMN (SIDE-BY-SIDE) USERS: If the table contains multiple sets of user attribute columns on the same row (e.g. columns like `firstName` and `firstName_1`, `lastName` and `lastName_1`, `employeeId` and `employeeId_1`, etc. representing a second person), you MUST extract them as separate, independent user records. Do not merge them into a single user, and do not ignore the second set of columns.
+10. NO DEFAULT OR PLACEHOLDER VALUES (CRITICAL): If a field (such as department, designation, employeeId, unit, email, phone, etc.) is blank, empty, or missing in the source data, you MUST leave it completely blank (`""`) in the output JSON. Do NOT guess, assume, or insert placeholder values like 'Miscellaneous', 'Other', 'Unknown', 'N/A', or default roles/departments. Only extract values that explicitly exist in the uploaded file.
 
 OUTPUT FORMAT (JSON):
 {{
@@ -349,6 +354,7 @@ def openai_extract_users(file_bytes, filename, api_key, intent="", pass_prefix="
             else:
                 # Read ALL sheets — sheet_name=None returns {sheet_name: DataFrame}
                 all_sheets = pd.read_excel(io.BytesIO(file_bytes), header=None, sheet_name=None)
+                all_sheets = filter_hidden_elements(file_bytes, all_sheets)
                 sheet_dfs = filter_sheets_by_intent(all_sheets, intent)
                 st.toast(f"📋 Found {len(sheet_dfs)} sheet(s): {', '.join(sheet_dfs.keys())}")
 

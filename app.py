@@ -153,8 +153,10 @@ if srcs:
                 needs_ai = False
                 reason = ""
                 if user_intent and str(user_intent).strip():
-                    needs_ai = True
-                    reason = "User specified custom extraction rules"
+                    from extraction.utils import check_intent_is_local_only
+                    if not check_intent_is_local_only(user_intent):
+                        needs_ai = True
+                        reason = "User specified custom extraction rules requiring AI"
                 elif filename.lower().endswith(('.pdf', '.docx', '.doc')):
                     needs_ai = True
                     reason = "Document requires layout-aware PDF/Word parsing"

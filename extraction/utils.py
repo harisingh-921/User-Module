@@ -399,3 +399,305 @@ def align_extracted_users_by_registry(all_users: list[dict]) -> list[dict]:
                     
     return all_users
 
+
+def parse_header_group(header: str) -> tuple[str, int]:
+    """
+    Parses a deduplicated column header into its base name and group index.
+    e.g., 'firstName_1' -> ('firstName', 1), 'firstName' -> ('firstName', 0)
+    """
+    import re
+    match = re.search(r'^(.*?)(?:_(\d+))?$', str(header).strip())
+    if match:
+        base = match.group(1)
+        group_str = match.group(2)
+        group_id = int(group_str) if group_str else 0
+        return base, group_id
+    return str(header).strip(), 0
+
+
+def parse_custom_mapping_rules(user_intent: str) -> dict[str, str]:
+    """
+    Parses custom mapping rules from user_intent string, e.g. "Suggested User = designation"
+    Returns a dict of {clean_custom_col_name: target_field}
+    """
+    rules = {}
+    if not user_intent or not isinstance(user_intent, str):
+        return rules
+        
+    for line in user_intent.replace(';', '\n').split('\n'):
+        if '=' in line:
+            lhs, rhs = line.split('=', 1)
+            col_name = lhs.strip().lower()
+            field_name = rhs.strip()
+            
+            # Normalize target field
+            from config.constants import USER_MASTER_COLS
+            matched_field = None
+            for f in USER_MASTER_COLS:
+                if f.lower() == field_name.lower():
+                    matched_field = f
+                    break
+            if col_name and matched_field:
+                rules[col_name] = matched_field
+    return rules
+
+
+def find_custom_rule_match(base: str, custom_rules: dict[str, str]) -> str:
+    """
+    Checks if the base column name matches any of the custom rule keys using exact, substring, or fuzzy matching.
+    Returns the matched target field name, or None.
+    """
+    import difflib
+    base_lower = base.lower().strip()
+    
+    # Try exact match first
+    if base_lower in custom_rules:
+        return custom_rules[base_lower]
+        
+    # Try fuzzy/substring matching
+    for k, field in custom_rules.items():
+        if k in base_lower or base_lower in k:
+            return field
+        # Compute string similarity ratio
+        ratio = difflib.SequenceMatcher(None, base_lower, k).ratio()
+        if ratio > 0.8:
+            return field
+            
+    return None
+
+
+def build_group_col_mappings(headers: list[str], user_intent: str = "") -> dict[int, dict[str, str]]:
+    """
+    Identifies all column groups (e.g. Group 0 for unsuffixed, Group 1 for _1)
+    and builds an independent column mapping dict {src_col: target_field} for each group.
+    """
+    import re
+    from config.constants import USER_MASTER_COLS, SEMANTIC_MAPPINGS
+    
+    custom_rules = parse_custom_mapping_rules(user_intent)
+    
+    # 1. Group headers by their group suffix
+    group_headers = {}
+    for h in headers:
+        base, g_id = parse_header_group(h)
+        matched_field = find_custom_rule_match(base, custom_rules)
+        
+        # If the column has 'suggested' in its name, we only skip it if there is NO custom rule mapping it!
+        if 'suggested' in base.lower() and not matched_field:
+            continue
+            
+        if g_id not in group_headers:
+            group_headers[g_id] = []
+        group_headers[g_id].append(h)
+        
+    group_mappings = {}
+    for g_id, cols in group_headers.items():
+        col_mapping_g = {}
+        
+        # We will match the base names of the columns (lowercase)
+        # but map them to the original source column name in cols
+        headers_lower_temp = {}
+        for h in cols:
+            base, _ = parse_header_group(h)
+            headers_lower_temp[h] = base.lower().strip()
+            
+            # Apply custom rules first
+            matched_field = find_custom_rule_match(base, custom_rules)
+            if matched_field:
+                col_mapping_g[h] = matched_field
+            
+        for target_field in USER_MASTER_COLS:
+            if target_field == 'roles':
+                continue
+            # If target field is already mapped by a custom rule, skip default mapping for it
+            if target_field in col_mapping_g.values():
+                continue
+                
+            if target_field == 'email':
+                # Prioritize Official Email
+                official_email_cols = [h for h in cols if h not in col_mapping_g and ('official' in str(h).lower() or 'work' in str(h).lower() or 'corp' in str(h).lower())]
+                general_email_cols = [h for h in cols if h not in col_mapping_g and ('email' in str(h).lower() or 'mail' in str(h).lower())]
+                best_email_col = None
+                for o_col in official_email_cols:
+                    if o_col in general_email_cols:
+                        best_email_col = o_col
+                        break
+                if best_email_col:
+                    col_mapping_g[best_email_col] = 'email'
+                    continue
+                    
+            tf_lower = target_field.lower()
+            for src_col, base_lower in headers_lower_temp.items():
+                if src_col in col_mapping_g:
+                    continue
+                src_clean = re.sub(r'\(.*?\)', '', base_lower).strip()
+                if src_clean == tf_lower or src_clean.replace(' ', '') == tf_lower.lower():
+                    col_mapping_g[src_col] = target_field
+                    break
+            else:
+                if target_field in SEMANTIC_MAPPINGS:
+                    for alias in SEMANTIC_MAPPINGS[target_field]:
+                        for src_col, base_lower in headers_lower_temp.items():
+                            if src_col in col_mapping_g:
+                                continue
+                            child_part = base_lower.split('|')[-1] if '|' in base_lower else base_lower
+                            child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+                            if alias == base_lower or base_lower.replace(' ', '') == alias.replace(' ', '') or alias == child_clean:
+                                col_mapping_g[src_col] = target_field
+                                break
+                        if any(v == target_field for v in col_mapping_g.values()):
+                            break
+
+                if not any(v == target_field for v in col_mapping_g.values()):
+                    broad_keywords = {
+                        'departments': ['department', 'dept'],
+                        'units': ['unit', 'ward', 'division'],
+                        'designation': ['designation', 'position', 'title', 'rank', 'category'],
+                        'userName': ['user name', 'username'],
+                        'employeeId': ['employee id', 'emp id', 'staff id', 'emp no', 'employee no', 'id no'],
+                        'email': ['email', 'e-mail', 'mail'],
+                        'phone': ['mobile', 'phone', 'contact', 'cell', 'telephone'],
+                        'thirdPartyUsername': ['third party', 'ad username', 'ad user', 'thirdparty'],
+                    }
+                    if target_field in broad_keywords:
+                        for kw in broad_keywords[target_field]:
+                            for src_col, base_lower in headers_lower_temp.items():
+                                if src_col in col_mapping_g:
+                                    continue
+                                child_part = base_lower.split('|')[-1] if '|' in base_lower else base_lower
+                                child_clean = re.sub(r'\(.*?\)', '', child_part).strip()
+
+                                if target_field == 'userName' and any(tp in child_clean for tp in ['third party', 'ad username', 'ad user', 'thirdparty']):
+                                    continue
+
+                                if kw in child_clean:
+                                    col_mapping_g[src_col] = target_field
+                                    break
+                            if any(v == target_field for v in col_mapping_g.values()):
+                                break
+
+            if target_field == 'firstName' and 'firstName' not in col_mapping_g.values():
+                for src_col, base_lower in headers_lower_temp.items():
+                    if src_col in col_mapping_g:
+                        continue
+                    src_clean = re.sub(r'\(.*?\)', '', base_lower).strip()
+                    if src_clean in ('name', 'full name', 'fullname', 'staff name', 'employee name'):
+                        col_mapping_g[src_col] = '_fullName'
+                        break
+        group_mappings[g_id] = col_mapping_g
+        
+    return group_mappings
+
+
+def filter_hidden_elements(file_bytes: bytes, sheet_dfs: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
+    """
+    Parses the workbook with openpyxl to identify hidden columns and rows,
+    then drops them from the loaded sheet dataframes.
+    """
+    import io
+    import openpyxl
+    from openpyxl.utils import column_index_from_string
+    
+    try:
+        # Load workbook in read/write mode (non-read-only) to query dimensions
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        new_sheet_dfs = {}
+        
+        for sheet_name, df in sheet_dfs.items():
+            if sheet_name not in wb.sheetnames:
+                new_sheet_dfs[sheet_name] = df
+                continue
+                
+            ws = wb[sheet_name]
+            
+            # Find hidden column indices (0-based)
+            hidden_col_indices = set()
+            for col_key, col_dim in ws.column_dimensions.items():
+                if col_dim.hidden:
+                    col_str = str(col_key)
+                    if ':' in col_str:
+                        try:
+                            start_letter, end_letter = col_str.split(':')
+                            start_idx = column_index_from_string(start_letter)
+                            end_idx = column_index_from_string(end_letter)
+                            for idx in range(start_idx, end_idx + 1):
+                                hidden_col_indices.add(idx - 1)
+                        except Exception:
+                            pass
+                    else:
+                        try:
+                            idx = column_index_from_string(col_str) - 1
+                            hidden_col_indices.add(idx)
+                        except Exception:
+                            pass
+                            
+            # Find hidden row indices (0-based matching pandas read without headers)
+            hidden_row_indices = set()
+            for r_idx, row_dim in ws.row_dimensions.items():
+                if row_dim.hidden:
+                    hidden_row_indices.add(r_idx - 1)
+                    
+            filtered_df = df.copy()
+            
+            # Drop hidden columns
+            cols_to_drop = [c for c in filtered_df.columns if c in hidden_col_indices]
+            if cols_to_drop:
+                filtered_df = filtered_df.drop(columns=cols_to_drop)
+                
+            # Drop hidden rows
+            rows_to_drop = [r for r in filtered_df.index if r in hidden_row_indices]
+            if rows_to_drop:
+                filtered_df = filtered_df.drop(index=rows_to_drop)
+                
+            # Reset columns and index to be sequential integers
+            filtered_df.columns = range(len(filtered_df.columns))
+            filtered_df = filtered_df.reset_index(drop=True)
+            
+            new_sheet_dfs[sheet_name] = filtered_df
+            
+        return new_sheet_dfs
+    except Exception as e:
+        log.warning("Could not filter hidden rows/columns: %s", e)
+        return sheet_dfs
+
+
+def check_intent_is_local_only(user_intent: str) -> bool:
+    """
+    Checks if the user_intent contains only instructions that can be handled 
+    by the Local Mode (column mappings e.g. 'A = B' or sheet filters e.g. 'ignore sheet 1').
+    If it contains any free-text clinical filtering or other complex queries, returns False.
+    """
+    if not user_intent or not str(user_intent).strip():
+        return True
+        
+    import re
+    lines = [line.strip() for line in user_intent.replace(';', '\n').split('\n') if line.strip()]
+    for line in lines:
+        line_lower = line.lower()
+        
+        # 1. Check if it is a sheet filter: "ignore sheet 1", "skip sheet 2", "only sheet 3"
+        is_sheet_filter = (
+            re.search(r'^(?:ignore|skip)\s*sheet\s*[0-9]+$', line_lower) or
+            re.search(r'^only\s*sheet\s*[0-9]+$', line_lower)
+        )
+        if is_sheet_filter:
+            continue
+            
+        # 2. Check if it is a column mapping: "LHS = RHS"
+        if '=' in line:
+            lhs, rhs = line.split('=', 1)
+            # Ensure RHS is one of our target field names (casing ignored)
+            from config.constants import USER_MASTER_COLS
+            field_name = rhs.strip().lower()
+            is_valid_field = any(f.lower() == field_name for f in USER_MASTER_COLS)
+            if is_valid_field:
+                continue
+                
+        # If any line is neither a sheet filter nor a valid column mapping rule, we need AI
+        return False
+        
+    return True
+
+
+
+
